@@ -39,3 +39,28 @@
 
 # debug information files
 *.dwo
+
+# Claude Code
+.claude/
+*.claude-*
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+
+# Added by cargo
+
+/target
+
+# Rust
+Cargo.lock
+*.rs.bk
+Cargo.toml.orig
+
+# Rust debug
+*.debug
