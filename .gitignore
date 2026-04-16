@@ -64,3 +64,5 @@ Cargo.toml.orig
 
 # Rust debug
 *.debug
+test-frames/
+test-frames-every/
