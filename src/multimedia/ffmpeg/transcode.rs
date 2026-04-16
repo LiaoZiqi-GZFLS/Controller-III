@@ -92,7 +92,12 @@ impl Transcoder for FfmpegTranscoder {
                         video_encoder.set_width(width);
                         video_encoder.set_height(height);
                         video_encoder.set_frame_rate(Some(stream.avg_frame_rate()));
-                        video_encoder.set_format(video_dec.format());
+                        // Use input pixel format if it's not None, otherwise use YUV420P (universally supported)
+                        if video_dec.format() != ffmpeg::format::Pixel::None {
+                            video_encoder.set_format(video_dec.format());
+                        } else {
+                            video_encoder.set_format(ffmpeg::format::Pixel::YUV420P);
+                        }
                         let mut video_encoder = video_encoder.open_with::<ffmpeg::Dictionary>(Default::default())?;
                         out_stream.set_parameters(ffmpeg::codec::Parameters::from(&video_encoder));
                         Some(Encoder::Video(video_encoder, video_dec))
@@ -109,7 +114,10 @@ impl Transcoder for FfmpegTranscoder {
                         }
                         audio_encoder.set_rate(audio_dec.rate() as i32);
                         audio_encoder.set_ch_layout(audio_dec.ch_layout());
-                        audio_encoder.set_format(audio_dec.format());
+                        // Use input sample format if it's not None, otherwise encoder will choose compatible format
+                        if audio_dec.format() != ffmpeg::format::Sample::None {
+                            audio_encoder.set_format(audio_dec.format());
+                        }
                         let mut audio_encoder = audio_encoder.open_with::<ffmpeg::Dictionary>(Default::default())?;
                         out_stream.set_parameters(ffmpeg::codec::Parameters::from(&audio_encoder));
                         Some(Encoder::Audio(audio_encoder, audio_dec))
