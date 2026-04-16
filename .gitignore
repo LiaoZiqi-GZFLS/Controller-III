@@ -66,3 +66,4 @@ Cargo.toml.orig
 *.debug
 test-frames/
 test-frames-every/
+test-output.*
