@@ -4,9 +4,11 @@ use clap::Parser;
 mod cli;
 mod modes;
 mod search;
+mod multimedia;
 
-use cli::args::CliArgs;
+use cli::args::{CliArgs, MultimediaSubcommands};
 use search::{create_search_engine, query_to_regex};
+use multimedia::{get_media_info, transcode, extract_frames, TranscoderOptions};
 
 #[cfg(windows)]
 fn enable_windows_ansi_support() {
@@ -33,7 +35,9 @@ fn main() {
 
     let cli = CliArgs::parse();
     let result = (|| -> Result<()> {
-        if let Some(query) = &cli.search {
+        if let Some(multimedia_cmd) = cli.multimedia {
+            handle_multimedia(multimedia_cmd)
+        } else if let Some(query) = &cli.search {
             let pattern = query_to_regex(query, cli.case_sensitive);
             let mut engine = create_search_engine(cli.force_generic);
 
@@ -63,6 +67,86 @@ fn main() {
             modes::interactive::run()
         }
     })();
+
+fn handle_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
+    match cmd {
+        MultimediaSubcommands::Info { input } => {
+            let info = get_media_info(&input)?;
+            println!("\n{}", info.format());
+            Ok(())
+        }
+
+        MultimediaSubcommands::Transcode { input, output, codec, bitrate, resolution } => {
+            let mut options = TranscoderOptions::default();
+            options.codec = codec;
+            options.bitrate = bitrate;
+            options.resolution = if let Some(res_str) = resolution {
+                // Parse resolution string like "1920x1080"
+                let parts: Vec<&str> = res_str.split('x').collect();
+                if parts.len() == 2 {
+                    let w: Option<u32> = parts[0].parse().ok();
+                    let h: Option<u32> = parts[1].parse().ok();
+                    match (w, h) {
+                        (Some(w), Some(h)) => Some((w, h)),
+                        _ => {
+                            eprintln!("Warning: Invalid resolution format, expected WxH (e.g. 1920x1080), ignoring");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            println!("Transcoding {} -> {}...", input.display(), output.display());
+            transcode(&input, &output, options)?;
+            println!("Done!");
+            Ok(())
+        }
+
+        MultimediaSubcommands::ExtractFrames { input, output_dir, times, frames, format, every } => {
+            use crate::multimedia::{ExtractOptions, ExtractSelection};
+
+            let selection = match (times, frames, every) {
+                (Some(times_str), None, None) => {
+                    let times: Vec<f64> = times_str.split(',')
+                        .map(|s| s.trim().parse())
+                        .collect::<Result<_, _>>()
+                        .map_err(|_| anyhow::anyhow!("Invalid times format, expected comma-separated numbers"))?;
+                    ExtractSelection::Times(times)
+                }
+
+                (None, Some(frames_str), None) => {
+                    let frames: Vec<u64> = frames_str.split(',')
+                        .map(|s| s.trim().parse())
+                        .collect::<Result<_, _>>()
+                        .map_err(|_| anyhow::anyhow!("Invalid frame numbers format, expected comma-separated integers"))?;
+                    ExtractSelection::Frames(frames)
+                }
+
+                (None, None, Some(n)) => {
+                    ExtractSelection::EveryNth(n)
+                }
+
+                _ => {
+                    anyhow::bail!("Exactly one selection method must be used: --times, --frames, or --every");
+                }
+            };
+
+            let extract_options = ExtractOptions {
+                selection,
+                format,
+            };
+
+            println!("Extracting frames from {} to {}...", input.display(), output_dir.display());
+            let count = extract_frames(&input, &output_dir, extract_options)?;
+            println!("Done! Extracted {} frames.", count);
+            Ok(())
+        }
+    }
+}
 
     if let Err(e) = result {
         eprintln!("\n\x1b[31mERROR:\x1b[0m {}", e);

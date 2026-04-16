@@ -1,7 +1,7 @@
 //! Direct NTFS MFT reading for extremely fast whole-drive search
 
 use regex::Regex;
-use std::io::{self, Seek, BufReader, Read};
+use std::io::{self, Seek, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, Duration};
 use anyhow::{Result, anyhow};
@@ -17,7 +17,6 @@ use std::env;
 use windows::Win32::Foundation::*;
 use windows::Win32::Security::*;
 use windows::Win32::System::Threading::*;
-use windows::Win32::UI::Shell::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
 
