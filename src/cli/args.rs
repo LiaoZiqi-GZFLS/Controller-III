@@ -3,6 +3,14 @@
 use clap::Parser;
 use std::path::PathBuf;
 
+/// Top-level CLI commands
+#[derive(Parser, Debug, Clone)]
+pub enum Commands {
+    /// Multimedia-related subcommands (info, transcode, extract-frames)
+    #[command(subcommand)]
+    Multimedia(MultimediaSubcommands),
+}
+
 /// Multimedia subcommands
 #[derive(Parser, Debug, Clone)]
 pub enum MultimediaSubcommands {
@@ -57,6 +65,78 @@ pub enum MultimediaSubcommands {
         #[arg(short, long, group = "selection")]
         every: Option<u32>,
     },
+
+    /// Trim video/audio to a time range (start to end/duration)
+    Trim {
+        /// Input media file path
+        input: PathBuf,
+
+        /// Output file path
+        output: PathBuf,
+
+        /// Start time in seconds (can use 10.5 for 10.5 seconds, or 01:30 for minutes)
+        #[arg(short, long)]
+        start: f64,
+
+        /// Duration in seconds (if not set, trims from start to end of media)
+        #[arg(short, long)]
+        duration: Option<f64>,
+    },
+
+    /// Extract audio track from video (discard video)
+    ExtractAudio {
+        /// Input media file (video with audio)
+        input: PathBuf,
+
+        /// Output audio file (e.g. output.mp3, output.aac)
+        output: PathBuf,
+
+        /// Output bitrate in kbps (e.g. 192 for 192kbps)
+        #[arg(short, long)]
+        bitrate: Option<u32>,
+
+        /// Output codec (optional, auto-detected from extension)
+        #[arg(short, long)]
+        codec: Option<String>,
+    },
+
+    /// Play video as ASCII art in the terminal
+    PlayAscii {
+        /// Input video file to play
+        input: PathBuf,
+
+        /// Width in ASCII characters (if not set, uses terminal width)
+        #[arg(short, long)]
+        width: Option<u32>,
+
+        /// Height in ASCII characters (if not set, auto-calculated from aspect ratio)
+        #[arg(short = 'H', long)]
+        height: Option<u32>,
+
+        /// Speed multiplier (0.5 = half speed, 2.0 = double speed)
+        #[arg(short, long, default_value = "1.0")]
+        speed: f64,
+
+        /// Show current FPS counter during playback
+        #[arg(long)]
+        show_fps: bool,
+
+        /// Color output mode: none, ansi256, or truecolor
+        #[arg(long, default_value = "none")]
+        color_mode: String,
+
+        /// Scaling mode: none (no scaling, use original), fit (fill window, change aspect), keep (keep aspect, default)
+        #[arg(long, default_value = "keep")]
+        scale_mode: String,
+
+        /// Export ASCII frames to text files instead of playing (output directory)
+        #[arg(long)]
+        export: Option<PathBuf>,
+
+        /// Maximum number of frames to export (default: all)
+        #[arg(long)]
+        export_max: Option<usize>,
+    },
 }
 
 /// Top-level CLI arguments
@@ -76,7 +156,7 @@ pub struct CliArgs {
     pub search: Option<String>,
 
     /// Root directory/drive to start search from (e.g. C:\ or ./my-folder)
-    #[arg(short = 'd', long)]
+    #[arg(short, long)]
     pub root: Option<std::path::PathBuf>,
 
     /// Force generic directory walking even when NTFS MFT is available
@@ -91,7 +171,7 @@ pub struct CliArgs {
     #[arg(short, long)]
     pub limit: Option<usize>,
 
-    /// Multimedia-related subcommands (info, transcode, extract-frames)
+    /// Top-level command (multimedia)
     #[command(subcommand)]
-    pub multimedia: Option<MultimediaSubcommands>,
+    pub command: Option<Commands>,
 }

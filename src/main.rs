@@ -6,9 +6,9 @@ mod modes;
 mod search;
 mod multimedia;
 
-use cli::args::{CliArgs, MultimediaSubcommands};
+use cli::args::{CliArgs, Commands, MultimediaSubcommands};
 use search::{create_search_engine, query_to_regex};
-use multimedia::{get_media_info, transcode, extract_frames, TranscoderOptions};
+use multimedia::{get_media_info, transcode, extract_frames, play_ascii, TranscoderOptions, AsciiPlayOptions, AsciiColorMode};
 
 #[cfg(windows)]
 fn enable_windows_ansi_support() {
@@ -35,7 +35,7 @@ fn main() {
 
     let cli = CliArgs::parse();
     let result = (|| -> Result<()> {
-        if let Some(multimedia_cmd) = cli.multimedia {
+        if let Some(Commands::Multimedia(multimedia_cmd)) = cli.command {
             handle_multimedia(multimedia_cmd)
         } else if let Some(query) = &cli.search {
             let pattern = query_to_regex(query, cli.case_sensitive);
@@ -143,6 +143,62 @@ fn handle_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
             println!("Extracting frames from {} to {}...", input.display(), output_dir.display());
             let count = extract_frames(&input, &output_dir, extract_options)?;
             println!("Done! Extracted {} frames.", count);
+            Ok(())
+        }
+
+        MultimediaSubcommands::Trim { input, output, start, duration } => {
+            println!("Trimming {} -> {}... start={}s duration={:?}s", input.display(), output.display(), start, duration);
+            crate::multimedia::trim(&input, &output, start, duration)?;
+            println!("Done!");
+            Ok(())
+        }
+
+        MultimediaSubcommands::ExtractAudio { input, output, bitrate, codec } => {
+            println!("Extracting audio from {} -> {}...", input.display(), output.display());
+            crate::multimedia::extract_audio(&input, &output, bitrate, codec)?;
+            println!("Done!");
+            Ok(())
+        }
+
+        MultimediaSubcommands::PlayAscii { input, width, height, speed, show_fps, color_mode, scale_mode, export, export_max } => {
+            let color_mode = match color_mode.as_str() {
+                "none" => AsciiColorMode::None,
+                "ansi256" => AsciiColorMode::Ansi256,
+                "truecolor" | "true-color" | "rgb" => AsciiColorMode::TrueColor,
+                _ => {
+                    eprintln!("Warning: Unknown color mode {}, using none", color_mode);
+                    AsciiColorMode::None
+                }
+            };
+
+            let scale_mode = match scale_mode.as_str() {
+                "none" | "no" => crate::multimedia::traits::AsciiScaleMode::NoScale,
+                "fit" | "fill" | "window" => crate::multimedia::traits::AsciiScaleMode::FitWindow,
+                "keep" | "aspect" | "keep-aspect" => crate::multimedia::traits::AsciiScaleMode::KeepAspect,
+                _ => {
+                    eprintln!("Warning: Unknown scale mode {}, using keep-aspect", scale_mode);
+                    crate::multimedia::traits::AsciiScaleMode::KeepAspect
+                }
+            };
+
+            let options = AsciiPlayOptions {
+                width,
+                height,
+                speed,
+                show_fps,
+                color_mode,
+                scale_mode,
+                export_dir: export,
+                export_max_frames: export_max,
+            };
+
+            if options.export_dir.is_some() {
+                println!("Exporting ASCII frames from {} to directory...", input.display());
+            } else {
+                println!("Playing {} as ASCII art... (Press q or Ctrl+C to quit)", input.display());
+            }
+            play_ascii(&input, options)?;
+            println!("Done!");
             Ok(())
         }
     }

@@ -140,6 +140,7 @@ fn multimedia_interactive(theme: &ColorfulTheme) -> Result<()> {
         "📋 Show media information",
         "🔄 Convert/Transcode media",
         "🖼️  Extract frames from video",
+        "🎮 Play video as ASCII art",
         "🔙 Back to main menu",
     ];
 
@@ -152,7 +153,8 @@ fn multimedia_interactive(theme: &ColorfulTheme) -> Result<()> {
         0 => media_info_interactive(theme),
         1 => transcode_interactive(theme),
         2 => extract_interactive(theme),
-        3 => Ok(()),
+        3 => play_ascii_interactive(theme),
+        4 => Ok(()),
         _ => unreachable!(),
     }
 }
@@ -358,6 +360,156 @@ fn extract_interactive(theme: &ColorfulTheme) -> Result<()> {
     println!("✅ Extraction complete! {} frames saved to {}", count, output_dir.display());
 
     Ok(())
+}
+
+fn play_ascii_interactive(theme: &ColorfulTheme) -> Result<()> {
+    println!("\n\x1b[1mPlay Video as ASCII Art\x1b[0m");
+
+    let input_str: String = Input::with_theme(theme)
+        .with_prompt("Input video file path")
+        .interact_text()?;
+
+    let input = PathBuf::from(input_str);
+
+    if !input.exists() {
+        eprintln!("ERROR: File not found: {}", input.display());
+        return Ok(());
+    }
+
+    let width_str: String = Input::with_theme(theme)
+        .with_prompt("Width in ASCII characters (leave empty for auto)")
+        .default(String::new())
+        .interact_text()?;
+
+    let width: Option<u32> = if !width_str.trim().is_empty() {
+        width_str.parse().ok()
+    } else {
+        None
+    };
+
+    let height_str: String = Input::with_theme(theme)
+        .with_prompt("Height in ASCII characters (leave empty for auto)")
+        .default(String::new())
+        .interact_text()?;
+
+    let height: Option<u32> = if !height_str.trim().is_empty() {
+        height_str.parse().ok()
+    } else {
+        None
+    };
+
+    let speed_str: String = Input::with_theme(theme)
+        .with_prompt("Playback speed multiplier")
+        .default("1.0".to_string())
+        .interact_text()?;
+
+    let speed: f64 = speed_str.parse().unwrap_or(1.0);
+
+    let show_fps: bool = Confirm::with_theme(theme)
+        .with_prompt("Show FPS counter during playback?")
+        .default(false)
+        .interact()?;
+
+    let color_modes = vec!["none (grayscale ASCII)", "ansi256 (256-color)", "truecolor (24-bit RGB)"];
+    let color_mode = Select::with_theme(theme)
+        .with_prompt("Color output mode")
+        .items(&color_modes)
+        .default(0)
+        .interact()?;
+
+    let color_mode = match color_mode {
+        0 => crate::multimedia::AsciiColorMode::None,
+        1 => crate::multimedia::AsciiColorMode::Ansi256,
+        2 => crate::multimedia::AsciiColorMode::TrueColor,
+        _ => crate::multimedia::AsciiColorMode::None,
+    };
+
+    let scale_modes = vec![
+        "keep aspect ratio (fit to window, preserve original proportions - default)",
+        "fit entire window (fill whole terminal, may change aspect ratio)",
+        "no scaling (use original video dimensions directly)",
+    ];
+    let scale_mode = Select::with_theme(theme)
+        .with_prompt("Scaling mode")
+        .items(&scale_modes)
+        .default(0)
+        .interact()?;
+
+    let scale_mode = match scale_mode {
+        0 => crate::multimedia::traits::AsciiScaleMode::KeepAspect,
+        1 => crate::multimedia::traits::AsciiScaleMode::FitWindow,
+        2 => crate::multimedia::traits::AsciiScaleMode::NoScale,
+        _ => crate::multimedia::traits::AsciiScaleMode::KeepAspect,
+    };
+
+    // Ask if user wants to export instead of play
+    let export_dir_str: String = Input::with_theme(theme)
+        .with_prompt("Export ASCII frames to directory (leave empty to play in terminal)")
+        .default(String::new())
+        .interact_text()?;
+
+    let export_dir = if export_dir_str.trim().is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(export_dir_str.trim()))
+    };
+
+    let export_max: Option<usize> = if export_dir.is_some() {
+        let export_max_str: String = Input::with_theme(theme)
+            .with_prompt("Maximum number of frames to export (leave empty for all)")
+            .default(String::new())
+            .interact_text()?;
+        if export_max_str.trim().is_empty() {
+            None
+        } else {
+            export_max_str.parse().ok()
+        }
+    } else {
+        None
+    };
+
+    if export_dir.is_some() {
+        println!("Exporting ASCII frames...");
+    } else {
+        println!("\nStarting playback... (press q, Esc, or Ctrl+C to quit)");
+    }
+
+    let options = crate::multimedia::AsciiPlayOptions {
+        width,
+        height,
+        speed,
+        show_fps,
+        color_mode,
+        scale_mode,
+        export_dir,
+        export_max_frames: export_max,
+    };
+
+    // Catch panics to ensure terminal is always restored
+    let result = std::panic::catch_unwind(|| {
+        crate::multimedia::play_ascii(&input, options)
+    });
+
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            // Error, already printed any audio warnings
+            eprintln!("\n\x1b[0mERROR: Playback failed: {}", e);
+            Err(e.into())
+        }
+        Err(panic) => {
+            // Panic occurred, terminal should be restored already by TerminalGuard drop
+            eprintln!("\n\x1b[0mERROR: Playback panicked!");
+            if let Some(msg) = panic.downcast_ref::<&str>() {
+                eprintln!("Panic message: {}", msg);
+            } else if let Some(msg) = panic.downcast_ref::<String>() {
+                eprintln!("Panic message: {}", msg);
+            } else {
+                eprintln!("Unknown panic type");
+            }
+            Err(anyhow::anyhow!("Playback panicked"))
+        }
+    }
 }
 
 fn print_results(results: Vec<FileEntry>, total_scanned: usize) {
