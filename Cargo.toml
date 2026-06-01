@@ -33,7 +33,7 @@ ffmpeg-sys-the-third = { version = "5.0.0+ffmpeg-8.1", optional = true, default-
     "swresample",
     "avfilter",
 ] }
-image = { version = "0.25", features = ["jpeg", "png"] }
+image = { version = "0.25", features = ["jpeg", "png", "gif"] }
 mp4 = "0.14"
 openh264 = "0.5"
 # ASCII video playback terminal handling
@@ -41,6 +41,8 @@ crossterm = "0.27"
 spin_sleep = "1.1"
 # Audio playback
 cpal = "0.15"
+# Font rasterization for ASCII GIF
+fontdue = "0.9"
 
 [features]
 default = ["ffmpeg"]
