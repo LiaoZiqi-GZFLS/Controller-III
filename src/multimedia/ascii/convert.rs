@@ -1,11 +1,52 @@
 //! Convert RGB frames to ASCII art
 
-use image::{DynamicImage, GenericImageView};
+use image::{DynamicImage, GenericImageView, Rgb};
 use crate::multimedia::traits::AsciiColorMode;
+
+/// An ASCII cell with its display character and RGB color
+#[derive(Debug, Clone)]
+pub struct AsciiCell {
+    pub char: char,
+    pub color: Rgb<u8>,
+}
 
 /// Standard ASCII gradient from darkest to lightest
 /// More characters = smoother gradient
 const ASCII_GRADIENT: &[u8] = b" .'`^\",:;Il!i~+_-=?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+
+/// Convert RGB frame to a grid of ASCII cells with per-cell color
+pub fn frame_to_ascii_grid(
+    image: &DynamicImage,
+    width: u32,
+    height: u32,
+    color_mode: AsciiColorMode,
+) -> Vec<Vec<AsciiCell>> {
+    let resized = image.resize_exact(width, height, image::imageops::FilterType::Triangle);
+    let mut grid = Vec::with_capacity(height as usize);
+
+    for y in 0..height {
+        let mut row = Vec::with_capacity(width as usize);
+        for x in 0..width {
+            let px = resized.get_pixel(x, y);
+            let r = px[0];
+            let g = px[1];
+            let b = px[2];
+
+            let luminance = (0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64) / 255.0;
+            let idx = (luminance * (ASCII_GRADIENT.len() - 1) as f64) as usize;
+            let ch = ASCII_GRADIENT[idx] as char;
+
+            let color = match color_mode {
+                AsciiColorMode::None => Rgb([255, 255, 255]),
+                _ => Rgb([r, g, b]),
+            };
+
+            row.push(AsciiCell { char: ch, color });
+        }
+        grid.push(row);
+    }
+    grid
+}
 
 /// Convert RGB frame buffer to ASCII lines
 pub fn image_to_ascii(
@@ -14,51 +55,32 @@ pub fn image_to_ascii(
     height: u32,
     color_mode: AsciiColorMode,
 ) -> Vec<String> {
-    // Resize image to target dimensions
-    // Use faster filter for real-time playback (good enough quality for ASCII)
-    let resized = image.resize_exact(width, height, image::imageops::FilterType::Triangle);
+    let grid = frame_to_ascii_grid(image, width, height, color_mode);
+    let mut lines = Vec::with_capacity(grid.len());
 
-    let mut ascii_lines = Vec::with_capacity(height as usize);
-
-    for y in 0..height {
-        let mut line = String::with_capacity(width as usize);
-        for x in 0..width {
-            let px = resized.get_pixel(x, y);
-            let r = px[0];
-            let g = px[1];
-            let b = px[2];
-
-            // Calculate luminance using standard ITU-R BT.601 formula
-            // Y = 0.299 R + 0.587 G + 0.114 B
-            let luminance = (0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64) / 255.0;
-
+    for row in grid {
+        let mut line = String::with_capacity(row.len());
+        for cell in row {
             match color_mode {
-                AsciiColorMode::None => {
-                    // Map luminance to ASCII character
-                    let idx = (luminance * (ASCII_GRADIENT.len() - 1) as f64) as usize;
-                    line.push(ASCII_GRADIENT[idx] as char);
-                }
+                AsciiColorMode::None => line.push(cell.char),
                 AsciiColorMode::Ansi256 => {
-                    let idx = (luminance * (ASCII_GRADIENT.len() - 1) as f64) as usize;
-                    let c = ASCII_GRADIENT[idx] as char;
-                    let ansi = rgb_to_ansi256(r, g, b);
-                    line.push_str(&format!("\x1b[38;5;{}m{}", ansi, c));
+                    let ansi = rgb_to_ansi256(cell.color[0], cell.color[1], cell.color[2]);
+                    line.push_str(&format!("\x1b[38;5;{}m{}", ansi, cell.char));
                 }
                 AsciiColorMode::TrueColor => {
-                    let idx = (luminance * (ASCII_GRADIENT.len() - 1) as f64) as usize;
-                    let c = ASCII_GRADIENT[idx] as char;
-                    line.push_str(&format!("\x1b[38;2;{};{};{}m{}", r, g, b, c));
+                    line.push_str(&format!(
+                        "\x1b[38;2;{};{};{}m{}",
+                        cell.color[0], cell.color[1], cell.color[2], cell.char
+                    ));
                 }
             }
         }
-        // Reset color at end of line if we used color
         if color_mode != AsciiColorMode::None {
             line.push_str("\x1b[0m");
         }
-        ascii_lines.push(line);
+        lines.push(line);
     }
-
-    ascii_lines
+    lines
 }
 
 /// Convert RGB to 256-color ANSI code
