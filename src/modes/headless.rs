@@ -3,7 +3,7 @@
 use anyhow::Result;
 use std::path::PathBuf;
 use crate::cli::args::MultimediaSubcommands;
-use crate::multimedia::{get_media_info, transcode, extract_frames, trim, extract_audio, play_ascii, TranscoderOptions, AsciiPlayOptions, AsciiColorMode};
+use crate::multimedia::{get_media_info, transcode, extract_frames, trim, extract_audio, play_ascii, export_ascii_gif, TranscoderOptions, AsciiPlayOptions, AsciiColorMode, GifExportOptions, GifStyle};
 use crate::search::{create_search_engine, query_to_regex};
 
 /// Run in headless mode
@@ -175,6 +175,42 @@ pub fn run_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
             }
             play_ascii(&input, options)?;
             println!("Done!");
+            Ok(())
+        }
+
+        MultimediaSubcommands::AsciiGif { input, output, fps, width, height, style, color_mode, start, duration } => {
+            let style = match style.as_str() {
+                "terminal" => GifStyle::Terminal,
+                "pixel-art" | "pixelart" => GifStyle::PixelArt,
+                _ => {
+                    eprintln!("Warning: Unknown style '{}', using terminal", style);
+                    GifStyle::Terminal
+                }
+            };
+
+            let color_mode = match color_mode.as_str() {
+                "none" => AsciiColorMode::None,
+                "ansi256" => AsciiColorMode::Ansi256,
+                "truecolor" | "true-color" | "rgb" => AsciiColorMode::TrueColor,
+                _ => {
+                    eprintln!("Warning: Unknown color mode '{}', using none", color_mode);
+                    AsciiColorMode::None
+                }
+            };
+
+            let options = GifExportOptions {
+                fps,
+                width,
+                height,
+                style,
+                color_mode,
+                start,
+                duration,
+            };
+
+            println!("Exporting ASCII GIF: {} -> {}...", input.display(), output.display());
+            export_ascii_gif(&input, &output, options)?;
+            println!("Done! Saved to {}", output.display());
             Ok(())
         }
     }

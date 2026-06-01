@@ -137,6 +137,43 @@ pub enum MultimediaSubcommands {
         #[arg(long)]
         export_max: Option<usize>,
     },
+
+    /// Convert video to ASCII art animated GIF
+    AsciiGif {
+        /// Input video file path
+        input: PathBuf,
+
+        /// Output GIF file path
+        output: PathBuf,
+
+        /// Target FPS for the GIF
+        #[arg(short, long, default_value = "10.0")]
+        fps: f64,
+
+        /// ASCII grid width in characters
+        #[arg(short, long, default_value = "80")]
+        width: u32,
+
+        /// ASCII grid height in characters (auto-calculated if not set)
+        #[arg(short = 'H', long)]
+        height: Option<u32>,
+
+        /// Rendering style: terminal or pixel-art
+        #[arg(short, long, default_value = "terminal")]
+        style: String,
+
+        /// Color mode: none, ansi256, or truecolor
+        #[arg(long, default_value = "none")]
+        color_mode: String,
+
+        /// Start time in seconds
+        #[arg(short, long)]
+        start: Option<f64>,
+
+        /// Duration in seconds
+        #[arg(short, long)]
+        duration: Option<f64>,
+    },
 }
 
 /// Top-level CLI arguments

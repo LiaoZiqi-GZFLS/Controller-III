@@ -8,7 +8,9 @@ mod multimedia;
 
 use cli::args::{CliArgs, Commands, MultimediaSubcommands};
 use search::{create_search_engine, query_to_regex};
-use multimedia::{get_media_info, transcode, extract_frames, play_ascii, TranscoderOptions, AsciiPlayOptions, AsciiColorMode};
+use multimedia::{get_media_info, transcode, extract_frames, play_ascii, export_ascii_gif,
+    TranscoderOptions, AsciiPlayOptions, AsciiColorMode,
+    GifExportOptions, GifStyle};
 
 #[cfg(windows)]
 fn enable_windows_ansi_support() {
@@ -157,6 +159,42 @@ fn handle_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
             println!("Extracting audio from {} -> {}...", input.display(), output.display());
             crate::multimedia::extract_audio(&input, &output, bitrate, codec)?;
             println!("Done!");
+            Ok(())
+        }
+
+        MultimediaSubcommands::AsciiGif { input, output, fps, width, height, style, color_mode, start, duration } => {
+            let style = match style.as_str() {
+                "terminal" => GifStyle::Terminal,
+                "pixel-art" | "pixelart" => GifStyle::PixelArt,
+                _ => {
+                    eprintln!("Warning: Unknown style '{}', using terminal", style);
+                    GifStyle::Terminal
+                }
+            };
+
+            let color_mode = match color_mode.as_str() {
+                "none" => AsciiColorMode::None,
+                "ansi256" => AsciiColorMode::Ansi256,
+                "truecolor" | "true-color" | "rgb" => AsciiColorMode::TrueColor,
+                _ => {
+                    eprintln!("Warning: Unknown color mode '{}', using none", color_mode);
+                    AsciiColorMode::None
+                }
+            };
+
+            let options = GifExportOptions {
+                fps,
+                width,
+                height,
+                style,
+                color_mode,
+                start,
+                duration,
+            };
+
+            println!("Exporting ASCII GIF: {} -> {}...", input.display(), output.display());
+            export_ascii_gif(&input, &output, options)?;
+            println!("Done! Saved to {}", output.display());
             Ok(())
         }
 
