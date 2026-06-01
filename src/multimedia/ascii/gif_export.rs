@@ -38,28 +38,28 @@ pub fn export_ascii_gif(
 
     let mut input_ctx = ffmpeg::format::input(input)?;
 
-    // Find video stream
+    // Find video stream and create decoder in one pass
     let mut video_stream_index = 0usize;
+    let mut video_time_base = ffmpeg::Rational::new(1, 1);
     let mut original_width = 0u32;
     let mut original_height = 0u32;
-    let mut video_time_base = ffmpeg::Rational::new(1, 1);
+    let mut decoder = None;
 
     for (i, s) in input_ctx.streams().enumerate() {
         if s.parameters().medium() == ffmpeg::media::Type::Video {
             video_stream_index = i;
             video_time_base = s.time_base();
             if let Ok(context) = ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
-                if let Ok(decoder) = context.decoder().video() {
-                    original_width = decoder.width();
-                    original_height = decoder.height();
+                if let Ok(dec) = context.decoder().video() {
+                    original_width = dec.width();
+                    original_height = dec.height();
+                    decoder = Some(dec);
                 }
             }
         }
     }
 
-    if original_width == 0 || original_height == 0 {
-        return Err(MultimediaError::NoVideoStream);
-    }
+    let mut decoder = decoder.ok_or_else(|| MultimediaError::NoVideoStream)?;
 
     // Calculate ASCII grid dimensions
     let default_height = options.width * original_height / original_width;
@@ -78,22 +78,6 @@ pub fn export_ascii_gif(
     let output_file = File::create(output)?;
     let mut gif_encoder = GifEncoder::new(output_file);
 
-    // Setup decoder
-    let stream = input_ctx.streams().nth(video_stream_index)
-        .ok_or_else(|| MultimediaError::InvalidMedia("Video stream not found".to_string()))?;
-    let context = ffmpeg::codec::context::Context::from_parameters(stream.parameters())?;
-    let mut decoder = context.decoder().video()?;
-
-    // Create scaler for RGB conversion
-    let mut scaler = ffmpeg::software::scaling::Context::get(
-        decoder.format(),
-        decoder.height(),
-        decoder.width(),
-        ffmpeg::format::Pixel::RGB24,
-        decoder.height(),
-        decoder.width(),
-        ffmpeg::software::scaling::flag::Flags::BILINEAR,
-    )?;
 
     // Calculate time range
     let start_time = options.start.unwrap_or(0.0);
@@ -131,18 +115,42 @@ pub fn export_ascii_gif(
             if pts >= target_pts && last_sampled_pts < target_pts {
                 last_sampled_pts = target_pts;
 
-                // Convert to RGB
-                let mut rgb_frame = ffmpeg::frame::Video::empty();
-                scaler.run(&decoded, &mut rgb_frame)?;
+                // Convert decoded frame to RGB image
+                let width = decoded.width();
+                let height = decoded.height();
+                let img = if decoded.format() == ffmpeg::format::Pixel::YUV420P {
+                    let mut rgb_img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+                    let y = decoded.data(0);
+                    let u = decoded.data(1);
+                    let v = decoded.data(2);
+                    let linesize_y = decoded.stride(0);
+                    let linesize_u = decoded.stride(1);
+                    let linesize_v = decoded.stride(2);
 
-                // Create RgbImage from raw data
-                let width = rgb_frame.width();
-                let height = rgb_frame.height();
-                let data = rgb_frame.data(0);
-                let img = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(width, height, data.to_vec())
-                    .ok_or_else(|| MultimediaError::InvalidParameter(
-                        "Failed to create image buffer".to_string()
-                    ))?;
+                    for (y_row, y_line) in y.chunks_exact(linesize_y).take(height as usize).enumerate() {
+                        for (x_col, &y_val) in y_line.iter().take(width as usize).enumerate() {
+                            let uv_row = y_row / 2;
+                            let uv_x = x_col / 2;
+                            let u_val = u[uv_row * linesize_u + uv_x];
+                            let v_val = v[uv_row * linesize_v + uv_x];
+
+                            let yf = y_val as f32;
+                            let uf = u_val as f32 - 128.0;
+                            let vf = v_val as f32 - 128.0;
+
+                            let r = (yf + 1.402 * vf).clamp(0.0, 255.0) as u8;
+                            let g = (yf - 0.34414 * uf - 0.71414 * vf).clamp(0.0, 255.0) as u8;
+                            let b = (yf + 1.772 * uf).clamp(0.0, 255.0) as u8;
+
+                            rgb_img.put_pixel(x_col as u32, y_row as u32, Rgb([r, g, b]));
+                        }
+                    }
+                    rgb_img
+                } else {
+                    return Err(MultimediaError::InvalidParameter(
+                        format!("Unsupported pixel format: {:?}. Only YUV420P is supported for GIF export.", decoded.format())
+                    ));
+                };
 
                 // Convert to ASCII and render
                 let grid = frame_to_ascii_grid(
