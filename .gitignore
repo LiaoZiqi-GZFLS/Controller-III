@@ -68,3 +68,7 @@ test-frames/
 test-frames-every/
 test-output*/
 test-mp4/
+
+# Test output files
+test.mp4
+*.gif
