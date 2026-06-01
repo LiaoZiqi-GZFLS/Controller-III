@@ -17,6 +17,8 @@ mod convert;
 mod terminal;
 mod player;
 pub mod native;
+pub mod gif_renderer;
+pub mod gif_export;
 
 pub use convert::*;
 pub use terminal::*;

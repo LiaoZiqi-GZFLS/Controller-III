@@ -46,6 +46,9 @@ pub enum MultimediaError {
 
     #[error("Failed to create output directory: {0}")]
     CreateOutputDir(String),
+
+    #[error("Audio error: {0}")]
+    AudioError(String),
 }
 
 #[cfg(feature = "ffmpeg")]
@@ -70,5 +73,17 @@ impl From<mp4::Error> for MultimediaError {
 impl From<openh264::Error> for MultimediaError {
     fn from(err: openh264::Error) -> Self {
         MultimediaError::OpenH264Error(err.to_string())
+    }
+}
+
+impl From<cpal::PlayStreamError> for MultimediaError {
+    fn from(err: cpal::PlayStreamError) -> Self {
+        MultimediaError::AudioError(err.to_string())
+    }
+}
+
+impl From<cpal::PauseStreamError> for MultimediaError {
+    fn from(err: cpal::PauseStreamError) -> Self {
+        MultimediaError::AudioError(err.to_string())
     }
 }

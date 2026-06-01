@@ -1,6 +1,6 @@
 //! ASCII grid to RGB image renderer using fontdue
 
-use image::{ImageBuffer, Rgb, RgbImage};
+use image::{ImageBuffer, Rgb, Rgba, RgbaImage};
 use fontdue::{Font, FontSettings};
 
 use crate::multimedia::error::MultimediaError;
@@ -61,14 +61,14 @@ impl GifRenderer {
         ))
     }
 
-    /// Render an ASCII grid to an RGB image
-    pub fn render_frame(&self, grid: &[Vec<AsciiCell>]) -> RgbImage {
+    /// Render an ASCII grid to an RGBA image
+    pub fn render_frame(&self, grid: &[Vec<AsciiCell>]) -> RgbaImage {
         let rows = grid.len() as u32;
         let cols = grid.first().map(|r| r.len() as u32).unwrap_or(0);
         let img_width = cols * self.cell_width;
         let img_height = rows * self.cell_height;
 
-        let mut img = ImageBuffer::from_pixel(img_width, img_height, Rgb([0, 0, 0]));
+        let mut img = ImageBuffer::from_pixel(img_width, img_height, Rgba([0, 0, 0, 255]));
 
         for (row_idx, row) in grid.iter().enumerate() {
             for (col_idx, cell) in row.iter().enumerate() {
@@ -82,7 +82,7 @@ impl GifRenderer {
     }
 
     /// Render a single ASCII cell to the image
-    fn render_cell(&self, img: &mut RgbImage, x: u32, y: u32, cell: &AsciiCell) {
+    fn render_cell(&self, img: &mut RgbaImage, x: u32, y: u32, cell: &AsciiCell) {
         let (metrics, bitmap) = self.font.rasterize(cell.char, self.cell_height as f32);
 
         for (i, &alpha) in bitmap.iter().enumerate() {
@@ -96,7 +96,7 @@ impl GifRenderer {
                 let r = (cell.color[0] as f32 * a) as u8;
                 let g = (cell.color[1] as f32 * a) as u8;
                 let b = (cell.color[2] as f32 * a) as u8;
-                img.put_pixel(px, py, Rgb([r, g, b]));
+                img.put_pixel(px, py, Rgba([r, g, b, 255]));
             }
         }
     }

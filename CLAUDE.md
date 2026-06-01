@@ -15,7 +15,7 @@ Key features:
 - **Two modes**: Interactive menu and headless command-line search
 - **Auto-elevation**: Automatically requests admin privileges for NTFS MFT access on Windows
 - **Multimedia processing**: Get media info, transcode/convert, extract frames, trim, extract audio, play video as ASCII art in terminal
-- **Pluggable backends**: Trait-based abstraction allows multiple backends (currently FFmpeg-based)
+- **Pluggable backends**: Trait-based abstraction allows multiple backends (currently FFmpeg-based, with native MP4+H.264 fallback for ASCII playback)
 
 ## Commands
 
@@ -53,6 +53,13 @@ cargo test -- --nocapture   # Run tests with output visible
 cargo test test_search      # Run single test
 ```
 
+### Lint / Format
+```bash
+cargo check                 # Fast syntax and type check
+cargo fmt                   # Format code
+cargo clippy                # Run linter
+```
+
 ### Clean
 ```bash
 cargo clean
@@ -63,7 +70,7 @@ cargo clean
 ### Module Structure
 ```
 src/
-├── main.rs                 # Entry point, auto-elevation logic, Windows ANSI init
+├── main.rs                 # Entry point, auto-elevation logic, Windows ANSI init, multimedia dispatch
 ├── cli/
 │   └── args.rs             # CLI argument definitions (clap) - includes multimedia subcommands
 ├── modes/
@@ -78,10 +85,10 @@ src/
 │   │   └── walk_dir.rs     # jwalk-based parallel directory traversal engine
 │   └── ntfs/
 │       └── mft_reader.rs   # NTFS MFT direct reading engine (Windows-only)
-└── multimedia/             # Multimedia processing (new)
-    ├── mod.rs              # Module exports and public API
-    ├── error.rs            # MultimediaError type
-    ├── traits.rs           # Trait definitions: MediaInfoProvider, Transcoder, FrameExtractor, AsciiPlayer
+└── multimedia/             # Multimedia processing
+    ├── mod.rs              # Module exports and public facade API
+    ├── error.rs            # MultimediaError enum (thiserror) with From impls for ffmpeg, image, mp4, openh264, cpal
+    ├── traits.rs           # Trait definitions: MediaInfoProvider, Transcoder, FrameExtractor, AsciiPlayer + options structs
     ├── media_info.rs       # MediaInfo struct (duration, resolution, streams, codecs)
     ├── info.rs             # Get media information facade (auto-select backend)
     ├── transcode.rs        # Transcoding facade
@@ -89,18 +96,20 @@ src/
     ├── trim.rs             # Trimming facade
     ├── extract_audio.rs    # Audio extraction facade
     ├── ascii/              # ASCII video conversion and terminal playback
-    │   ├── mod.rs          # Playback entry point
+    │   ├── mod.rs          # Playback entry point, backend auto-selection
+    │   ├── player.rs       # Shared playback state machine (PlaybackState, UserAction, QueuedFrame, PlaybackContext)
     │   ├── convert.rs      # Frame to ASCII conversion
     │   ├── terminal.rs     # Terminal rendering and input handling
-    │   └── ffmpeg.rs       # FFmpeg-based frame extraction for playback
+    │   ├── ffmpeg.rs       # FFmpeg-based frame extraction and audio playback for ASCII
+    │   └── native.rs       # Native (MP4+H.264) fallback for ASCII playback without FFmpeg
     ├── ffmpeg/             # FFmpeg-based backend (uses ffmpeg-the-third)
-    │   ├── mod.rs
+    │   ├── mod.rs          # Backend availability check, feature-gated re-exports
     │   ├── info.rs         # FFmpeg media info implementation
     │   ├── transcode.rs    # FFmpeg transcoding implementation
     │   ├── extract.rs      # FFmpeg frame extraction implementation
     │   ├── trim.rs         # FFmpeg trimming implementation
     │   └── extract_audio.rs # FFmpeg audio extraction implementation
-    └── native/             # Native (pure Rust) backend (incomplete)
+    └── native/             # Native (pure Rust) backend (incomplete - info + extract only)
         ├── mod.rs
         ├── info.rs
         └── extract.rs
@@ -112,9 +121,27 @@ src/
 
 ### Multimedia Architecture
 - **Trait-based abstraction**: All multimedia operations are defined by traits in `multimedia::traits`
-- **Backend selection**: Facade functions in `multimedia/*` automatically select the available backend (prefers FFmpeg)
-- **FFmpeg backend**: Uses `ffmpeg-the-third` (Rust bindings to FFmpeg 8.1) for robust processing
+- **Facade pattern**: Top-level `multimedia/mod.rs` exports facade functions (`get_media_info`, `transcode`, `extract_frames`, `trim`, `extract_audio`, `play_ascii`) that auto-select the best available backend
+- **Backend auto-selection**: Facades check `ffmpeg::is_available()` via `ffmpeg_the_third::init()` and fall back to native implementations when FFmpeg is unavailable
+- **FFmpeg backend**: Uses `ffmpeg-the-third` (Rust bindings to FFmpeg 8.1) for robust processing. All FFmpeg modules are feature-gated with `#[cfg(feature = "ffmpeg")]`
+- **Native fallback**: For ASCII playback, a native MP4+H.264 decoder (`mp4` + `openh264` crates) provides fallback when FFmpeg is unavailable
 - **Feature flag**: FFmpeg is enabled by default but can be disabled via `--no-default-features`
+
+### ASCII Playback Architecture
+The ASCII video player has a multi-threaded architecture:
+- **Decode thread**: Extracts frames from video (FFmpeg or native), converts to ASCII via `convert.rs`, and pushes to a bounded queue
+- **Main thread**: Reads from queue, renders via `terminal.rs` using `crossterm`, handles keyboard input for playback controls
+- **Audio thread** (FFmpeg only): Decodes and plays audio via `cpal`, synchronized to video PTS
+- **Shared state**: `PlaybackContext` + `PlaybackState` enum (Playing, Paused, Seeking, Finished) coordinated via `mpsc` channels
+- **User controls**: q/Ctrl+C=quit, space=pause, ←/→=seek, +/-=speed, r=resize to terminal
+- **Scaling modes**: `NoScale` (original), `FitWindow` (stretch), `KeepAspect` (preserve ratio, default)
+- **Color modes**: `None`, `Ansi256`, `TrueColor`
+
+### Error Handling Pattern
+- All multimedia errors use `MultimediaError` enum in `multimedia/error.rs`
+- `thiserror` derives `Error` with formatted messages
+- `From` implementations bridge external errors: `ffmpeg_the_third::Error`, `image::ImageError`, `mp4::Error`, `openh264::Error`, `cpal::PlayStreamError`/`PauseStreamError`
+- Top-level `main.rs` catches `anyhow::Result` and prints colored error messages, keeping the window open on Windows elevated prompts
 
 ### "User Files First" Scoring Algorithm
 Lower score = higher ranking:
@@ -126,13 +153,21 @@ Lower score = higher ranking:
 - System file extensions: +10 points
 - Newer files get slight additional priority
 
+### Feature-Gate Patterns
+The codebase uses conditional compilation extensively:
+- `#[cfg(feature = "ffmpeg")]` — guards all FFmpeg backend code and dependencies
+- `#[cfg(windows)]` — guards NTFS MFT engine, Windows ANSI support, UAC auto-elevation, owner-based scoring
+- `#[cfg(not(feature = "ffmpeg"))]` — provides stubs when FFmpeg is disabled
+
 ## Key Dependencies
 
 - **CLI**: clap (derive + color)
 - **Interactive UI**: dialoguer
 - **File search**: jwalk (parallel traversal), regex, rayon (parallel sort)
 - **NTFS (Windows)**: mft, jiff, windows (Win32 API)
-- **Multimedia**: ffmpeg-the-third, ffmpeg-sys-the-third, image (JPEG/PNG), crossterm (terminal), cpal (audio)
+- **Multimedia FFmpeg**: ffmpeg-the-third, ffmpeg-sys-the-third
+- **Multimedia native fallback**: mp4 (MP4 parsing), openh264 (H.264 decoding), image (JPEG/PNG encoding)
+- **ASCII playback**: crossterm (terminal I/O), cpal (audio), spin_sleep (precise frame timing)
 - **Error handling**: anyhow, thiserror
 
 ## Platform Notes
@@ -141,6 +176,7 @@ Lower score = higher ranking:
 - Automatically falls back to generic engine on non-Windows platforms or when privileges are not available
 - Auto-elevation (UAC prompt) is implemented for Windows when NTFS access is requested without admin rights
 - FFmpeg multimedia processing is cross-platform but requires linking to FFmpeg libraries
+- On non-Windows builds, the NTFS module and Windows-specific dependencies are excluded entirely
 
 ## Performance
 

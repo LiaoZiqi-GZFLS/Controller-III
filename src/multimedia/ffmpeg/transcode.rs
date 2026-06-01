@@ -7,6 +7,7 @@ use ffmpeg::codec;
 use ffmpeg::{decoder, encoder};
 use ffmpeg::format;
 use ffmpeg::media;
+use ffmpeg::software::scaling;
 
 use crate::multimedia::{
     error::MultimediaError,
@@ -44,11 +45,12 @@ impl Transcoder for FfmpegTranscoder {
         let output_ctx_ptr = &mut output_ctx as *mut _;
 
         enum Encoder {
-            Video(encoder::Video, decoder::Video),
+            Video(encoder::Video, decoder::Video, Option<scaling::Context>, u32, u32),
             Audio(encoder::Audio, decoder::Audio),
         }
 
         let mut streams: Vec<(usize, usize, Encoder)> = Vec::new();
+        let mut video_stream_index = None;
 
         for (input_index, stream) in input_ctx.streams().enumerate() {
             let in_codec_params = stream.parameters();
@@ -79,12 +81,16 @@ impl Transcoder for FfmpegTranscoder {
             let mut out_stream = output_ctx.add_stream(out_codec)?;
             let encode_builder = codec::context::Context::new_with_codec(out_codec);
             let out_index = out_stream.index();
+            if medium == media::Type::Video {
+                video_stream_index = Some(out_index);
+            }
             let encoder = match medium {
                 media::Type::Video => {
                     if let Ok(mut video_dec) = decode_ctx.video() {
                         let width = options.resolution.map(|(w, _)| w).unwrap_or(video_dec.width());
                         let height = options.resolution.map(|(_, h)| h).unwrap_or(video_dec.height());
                         let mut video_encoder = encode_builder.encoder().video()?;
+                        // Keep the same time base as input for compatibility
                         video_encoder.set_time_base(stream.time_base());
                         if let Some(bitrate_kbps) = options.bitrate {
                             video_encoder.set_bit_rate((bitrate_kbps * 1000) as usize);
@@ -92,12 +98,30 @@ impl Transcoder for FfmpegTranscoder {
                         video_encoder.set_width(width);
                         video_encoder.set_height(height);
                         video_encoder.set_frame_rate(Some(stream.avg_frame_rate()));
+                        video_encoder.set_aspect_ratio(stream.sample_aspect_ratio());
                         // Must set pixel format - mpeg4 and many encoders require it explicitly
                         // YUV420P is universally supported and what almost all video decoders output
                         video_encoder.set_format(ffmpeg::format::Pixel::YUV420P);
                         let mut video_encoder = video_encoder.open_with::<ffmpeg::Dictionary>(Default::default())?;
                         out_stream.set_parameters(ffmpeg::codec::Parameters::from(&video_encoder));
-                        Some(Encoder::Video(video_encoder, video_dec))
+
+                        // Create swscale context for pixel format conversion and rescaling
+                        // We always convert to YUV420P which is what the encoder expects
+                        let src_format = video_dec.format();
+                        let mut sws_ctx = None;
+
+                        if src_format != ffmpeg::format::Pixel::YUV420P || width != video_dec.width() || height != video_dec.height() {
+                            // Need conversion/rescaler
+                            // Parameter order for ffmpeg-the-third API: src_format, src_height, src_width, dst_format, dst_height, dst_width
+                            // (it swaps them internally to match C libswscale signature)
+                            sws_ctx = scaling::Context::get(
+                                src_format, video_dec.height(), video_dec.width(),
+                                ffmpeg::format::Pixel::YUV420P, height, width,
+                                scaling::Flags::BILINEAR,
+                            ).ok();
+                        }
+
+                        Some(Encoder::Video(video_encoder, video_dec, sws_ctx, width, height))
                     } else {
                         None
                     }
@@ -105,7 +129,7 @@ impl Transcoder for FfmpegTranscoder {
                 media::Type::Audio => {
                     if let Ok(mut audio_dec) = decode_ctx.audio() {
                         let mut audio_encoder = encode_builder.encoder().audio()?;
-                        audio_encoder.set_time_base(stream.time_base());
+                        audio_encoder.set_time_base(ffmpeg::Rational::new(1, audio_dec.rate() as i32));
                         if let Some(bitrate_kbps) = options.bitrate {
                             audio_encoder.set_bit_rate((bitrate_kbps * 1000) as usize);
                         }
@@ -128,12 +152,20 @@ impl Transcoder for FfmpegTranscoder {
             }
         }
 
-        // Write header after all streams are added
+        // Write header after all streams added
         output_ctx.write_header()?;
+
+        let mut video_frames_written = 0;
+        let mut video_packets_processed = 0;
 
         // Second pass: process all packets
         'packet: for (stream, mut packet) in input_ctx.packets().filter_map(Result::ok) {
             let input_index = stream.index();
+
+            // Check if this is a video packet for debugging
+            if video_stream_index == Some(input_index) {
+                video_packets_processed += 1;
+            }
 
             // Find matching stream info
             for (in_idx, out_idx, encoder) in &mut streams {
@@ -142,34 +174,62 @@ impl Transcoder for FfmpegTranscoder {
                 }
 
                 match encoder {
-                    Encoder::Video(video_enc, video_dec) => {
+                    Encoder::Video(video_enc, video_dec, sws_ctx, out_w, out_h) => {
+                        let out_stream = output_ctx.stream(*out_idx).unwrap();
+                        let out_time_base = out_stream.time_base();
                         packet.set_stream(*out_idx);
-                        packet.rescale_ts(video_dec.time_base(), output_ctx.stream(*out_idx).unwrap().time_base());
+                        // !! CRITICAL: Rescale packet PTS/DTS to output timebase here
+                        // After decoding, frame inherits correct PTS/DTS - no double conversion!
+                        packet.rescale_ts(stream.time_base(), out_time_base);
 
-                        if video_dec.send_packet(&packet).is_err() {
-                            continue 'packet;
-                        }
+                        // Even if send_packet returns error, we still need to receive what's already decoded
+                        let _ = video_dec.send_packet(&packet);
 
-                        let mut frame = ffmpeg::frame::Video::empty();
-                        while video_dec.receive_frame(&mut frame).is_ok() {
-                            if video_enc.send_frame(&frame).is_err() {
-                                continue;
+                        // Must create a new frame for each receive loop
+                        loop {
+                            let mut frame = ffmpeg::frame::Video::empty();
+                            if !video_dec.receive_frame(&mut frame).is_ok() {
+                                break;
+                            }
+                            if let Some(sws) = sws_ctx {
+                                // Convert to YUV420P and/or scale
+                                let mut converted = ffmpeg::frame::Video::empty();
+                                converted.set_width(*out_w);
+                                converted.set_height(*out_h);
+                                converted.set_format(ffmpeg::format::Pixel::YUV420P);
+                                // Must allocate buffer before swscale can write to it
+                                unsafe {
+                                    converted.alloc(ffmpeg::format::Pixel::YUV420P, *out_w, *out_h);
+                                }
+                                // PTS/DTS already correct from packet conversion above - just copy
+                                converted.set_pts(frame.pts());
+                                let _ = sws.run(&frame, &mut converted);
+                                if video_enc.send_frame(&converted).is_err() {
+                                    continue;
+                                }
+                            } else {
+                                if video_enc.send_frame(&frame).is_err() {
+                                    continue;
+                                }
                             }
 
                             let mut out_packet = ffmpeg::Packet::empty();
                             while video_enc.receive_packet(&mut out_packet).is_ok() {
                                 out_packet.set_stream(*out_idx);
                                 unsafe { out_packet.write_interleaved(&mut *output_ctx_ptr)?; }
+                                video_frames_written += 1;
                             }
                         }
                     }
                     Encoder::Audio(audio_enc, audio_dec) => {
+                        let out_stream = output_ctx.stream(*out_idx).unwrap();
+                        let out_time_base = out_stream.time_base();
                         packet.set_stream(*out_idx);
-                        packet.rescale_ts(audio_dec.time_base(), output_ctx.stream(*out_idx).unwrap().time_base());
+                        // Rescale packet PTS/DTS to output timebase here - done once
+                        packet.rescale_ts(audio_dec.time_base(), out_time_base);
 
-                        if audio_dec.send_packet(&packet).is_err() {
-                            continue 'packet;
-                        }
+                        // Even if send_packet returns error, we still need to receive what's already decoded
+                        let _ = audio_dec.send_packet(&packet);
 
                         let mut frame = ffmpeg::frame::Audio::empty();
                         while audio_dec.receive_frame(&mut frame).is_ok() {
@@ -188,15 +248,18 @@ impl Transcoder for FfmpegTranscoder {
             }
         }
 
+        println!("Processed {} video packets, wrote {} video frames", video_packets_processed, video_frames_written);
+
         // Flush all encoders
         for (_input_index, out_idx, encoder) in &mut streams {
             match encoder {
-                Encoder::Video(video_enc, _) => {
+                Encoder::Video(video_enc, _, _, _, _) => {
                     video_enc.send_eof()?;
                     let mut out_packet = ffmpeg::Packet::empty();
                     while video_enc.receive_packet(&mut out_packet).is_ok() {
                         out_packet.set_stream(*out_idx);
                         unsafe { out_packet.write_interleaved(&mut *output_ctx_ptr)?; }
+                        video_frames_written += 1;
                     }
                 }
                 Encoder::Audio(audio_enc, _) => {
@@ -212,6 +275,8 @@ impl Transcoder for FfmpegTranscoder {
 
         // Write trailer
         output_ctx.write_trailer()?;
+
+        println!("Total: {} video frames written to output", video_frames_written);
 
         Ok(())
     }

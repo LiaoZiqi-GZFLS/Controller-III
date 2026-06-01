@@ -79,7 +79,8 @@ pub fn export_ascii_gif(
     let mut gif_encoder = GifEncoder::new(output_file);
 
     // Setup decoder
-    let stream = &input_ctx.streams()[video_stream_index];
+    let stream = input_ctx.streams().nth(video_stream_index)
+        .ok_or_else(|| MultimediaError::InvalidMedia("Video stream not found".to_string()))?;
     let context = ffmpeg::codec::context::Context::from_parameters(stream.parameters())?;
     let mut decoder = context.decoder().video()?;
 
@@ -105,7 +106,7 @@ pub fn export_ascii_gif(
     let mut last_sampled_pts = -1.0f64;
 
     // Decode and sample frames
-    for (stream, packet) in input_ctx.packets() {
+    for (stream, packet) in input_ctx.packets().filter_map(Result::ok) {
         if stream.index() != video_stream_index {
             continue;
         }
