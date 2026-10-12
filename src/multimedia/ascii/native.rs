@@ -2,27 +2,26 @@
 //! Used as fallback when FFmpeg is not available
 //! Note: This fallback does not support audio playback
 
-use std::path::Path;
-use std::fs::File;
-use std::thread;
-use std::time::{Instant, Duration};
+use image::{DynamicImage, ImageBuffer, RgbImage};
 use mp4::Mp4Reader;
-use openh264::{decoder::Decoder, decoder::DecodedYUV, OpenH264API};
 use openh264::formats::YUVSource;
-use image::{ImageBuffer, RgbImage, DynamicImage};
+use openh264::{OpenH264API, decoder::DecodedYUV, decoder::Decoder};
 use spin_sleep::SpinSleeper;
+use std::fs::File;
+use std::path::Path;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::multimedia::{
-    error::MultimediaError,
-    traits::{AsciiPlayer, AsciiPlayOptions},
     ascii::{
-        calculate_dimensions, image_to_ascii, TerminalGuard,
+        TerminalGuard, calculate_dimensions, image_to_ascii,
         player::{
-            QueuedFrame, PlaybackContext, PlaybackState, UserAction,
-            DecodeMessage, create_frame_queue, create_decode_control,
-            DEFAULT_SEEK_STEP, DEFAULT_SPEED_STEP,
+            DEFAULT_SEEK_STEP, DEFAULT_SPEED_STEP, DecodeMessage, PlaybackContext, PlaybackState,
+            QueuedFrame, UserAction, create_decode_control, create_frame_queue,
         },
     },
+    error::MultimediaError,
+    traits::{AsciiPlayOptions, AsciiPlayer},
 };
 
 /// Native MP4+H.264 ASCII video player
@@ -66,27 +65,33 @@ impl NativeAsciiPlayer {
 }
 
 impl AsciiPlayer for NativeAsciiPlayer {
-    fn play(
-        &mut self,
-        input: &Path,
-        options: AsciiPlayOptions,
-    ) -> Result<(), MultimediaError> {
+    fn play(&mut self, input: &Path, options: AsciiPlayOptions) -> Result<(), MultimediaError> {
         let mut file = File::open(input)?;
         let file_size = file.metadata()?.len();
-        let mut mp4 = Mp4Reader::read_header(&mut file, file_size)?;
+        let mp4 = Mp4Reader::read_header(&mut file, file_size)?;
 
         // Find video track
         const VIDEO: mp4::FourCC = mp4::FourCC { value: *b"vide" };
-        let (video_track_id, video_track) = match mp4.tracks().iter()
-            .find(|(_, track)| track.trak.mdia.hdlr.handler_type == VIDEO && track.trak.mdia.minf.stbl.stsd.avc1.is_some()) {
-                Some((id, track)) => (*id, track),
-                None => return Err(MultimediaError::InvalidMedia("No H.264 video track found in MP4".into())),
-            };
+        let (video_track_id, video_track) = match mp4.tracks().iter().find(|(_, track)| {
+            track.trak.mdia.hdlr.handler_type == VIDEO
+                && track.trak.mdia.minf.stbl.stsd.avc1.is_some()
+        }) {
+            Some((id, track)) => (*id, track),
+            None => {
+                return Err(MultimediaError::InvalidMedia(
+                    "No H.264 video track found in MP4".into(),
+                ));
+            }
+        };
 
         // Get video dimensions
         let (original_width, original_height) = match &video_track.trak.mdia.minf.stbl.stsd.avc1 {
             Some(avc1) => (avc1.width.into(), avc1.height.into()),
-            None => return Err(MultimediaError::InvalidMedia("Could not get video dimensions".into())),
+            None => {
+                return Err(MultimediaError::InvalidMedia(
+                    "Could not get video dimensions".into(),
+                ));
+            }
         };
 
         // Get timescale and duration
@@ -138,7 +143,9 @@ impl AsciiPlayer for NativeAsciiPlayer {
         // Collect all samples (we need to play them all sequentially)
         let samples = collect_all_samples(video_track);
         if samples.is_empty() {
-            return Err(MultimediaError::InvalidMedia("No samples found in video track".into()));
+            return Err(MultimediaError::InvalidMedia(
+                "No samples found in video track".into(),
+            ));
         }
 
         // Create channels
@@ -189,7 +196,8 @@ impl AsciiPlayer for NativeAsciiPlayer {
                         // Find the sample closest to target PTS
                         let target_ts = (target_pts * timescale as f64) as u64;
                         // Find the first sample with timestamp >= target_ts
-                        current_sample_index = samples.iter()
+                        current_sample_index = samples
+                            .iter()
                             .position(|&(_, ts)| ts >= target_ts)
                             .unwrap_or(samples.len() - 1);
                         continue 'decode;
@@ -239,13 +247,16 @@ impl AsciiPlayer for NativeAsciiPlayer {
                                 );
 
                                 // Queue frame
-                                if frame_sender.send(QueuedFrame {
-                                    ascii_lines,
-                                    pts,
-                                    duration,
-                                    original_width,
-                                    original_height,
-                                }).is_err() {
+                                if frame_sender
+                                    .send(QueuedFrame {
+                                        ascii_lines,
+                                        pts,
+                                        duration,
+                                        original_width,
+                                        original_height,
+                                    })
+                                    .is_err()
+                                {
                                     break 'decode;
                                 }
                             }
@@ -316,12 +327,13 @@ impl AsciiPlayer for NativeAsciiPlayer {
                             );
                             if ctx.handle_resize(new_width, new_height) {
                                 // Dimensions changed, send to decode thread
-                                let _ = control_sender.send(DecodeMessage::Resize(new_width, new_height));
+                                let _ = control_sender
+                                    .send(DecodeMessage::Resize(new_width, new_height));
                             }
                         }
                     }
                     UserAction::None => {}
-                }
+                },
                 Err(e) => {
                     eprintln!("Terminal input error: {}", e);
                     break 'main;
@@ -339,7 +351,11 @@ impl AsciiPlayer for NativeAsciiPlayer {
             // If paused, keep displaying current frame
             if ctx.state == PlaybackState::Paused {
                 if let Some(frame) = &current_frame {
-                    let fps = if ctx.show_fps { Some(ctx.calculate_fps(render_start)) } else { None };
+                    let fps = if ctx.show_fps {
+                        Some(ctx.calculate_fps(render_start))
+                    } else {
+                        None
+                    };
                     let _ = TerminalGuard::render_frame(
                         &frame.ascii_lines,
                         fps,
@@ -389,7 +405,11 @@ impl AsciiPlayer for NativeAsciiPlayer {
                 }
 
                 if frame.pts != ctx.last_rendered_pts {
-                    let fps = if ctx.show_fps { Some(ctx.calculate_fps(render_start)) } else { None };
+                    let fps = if ctx.show_fps {
+                        Some(ctx.calculate_fps(render_start))
+                    } else {
+                        None
+                    };
                     let _ = TerminalGuard::render_frame(
                         &frame.ascii_lines,
                         fps,
@@ -402,7 +422,7 @@ impl AsciiPlayer for NativeAsciiPlayer {
                 }
 
                 // Drop additional frames to catch up if we're still behind
-                while let Ok(mut next_frame) = frame_receiver.try_recv() {
+                while let Ok(next_frame) = frame_receiver.try_recv() {
                     if next_frame.pts < current_pts {
                         ctx.frames_dropped += 1;
                     } else {
@@ -420,7 +440,10 @@ impl AsciiPlayer for NativeAsciiPlayer {
         drop(frame_receiver);
         let _ = _decode_handle.join();
 
-        println!("\x1b[0mPlayback complete: {} frames rendered, {} frames dropped (native backend has no audio)", ctx.frames_rendered, ctx.frames_dropped);
+        println!(
+            "\x1b[0mPlayback complete: {} frames rendered, {} frames dropped (native backend has no audio)",
+            ctx.frames_rendered, ctx.frames_dropped
+        );
 
         Ok(())
     }
@@ -488,41 +511,56 @@ fn native_export_ascii_frames(
     output_width: u32,
     output_height: u32,
     color_mode: crate::multimedia::traits::AsciiColorMode,
-    video_track_id: u32,
+    _video_track_id: u32,
     max_frames: Option<usize>,
 ) -> Result<(), MultimediaError> {
-    use std::io::Write;
-    use openh264::{decoder::Decoder, OpenH264API};
     use image::DynamicImage;
+    use openh264::{OpenH264API, decoder::Decoder};
+    use std::io::Write;
 
     let mut file = File::open(input_path)?;
     let file_size = file.metadata()?.len();
-    let mut mp4 = Mp4Reader::read_header(&mut file, file_size)?;
+    let mp4 = Mp4Reader::read_header(&mut file, file_size)?;
 
     // Find video track again
     const VIDEO: mp4::FourCC = mp4::FourCC { value: *b"vide" };
-    let (video_track_id, video_track) = match mp4.tracks().iter()
-        .find(|(_, track)| track.trak.mdia.hdlr.handler_type == VIDEO && track.trak.mdia.minf.stbl.stsd.avc1.is_some()) {
-            Some((id, track)) => (*id, track),
-            None => return Err(MultimediaError::InvalidMedia("No H.264 video track found in MP4".into())),
-        };
+    let (video_track_id, video_track) = match mp4.tracks().iter().find(|(_, track)| {
+        track.trak.mdia.hdlr.handler_type == VIDEO && track.trak.mdia.minf.stbl.stsd.avc1.is_some()
+    }) {
+        Some((id, track)) => (*id, track),
+        None => {
+            return Err(MultimediaError::InvalidMedia(
+                "No H.264 video track found in MP4".into(),
+            ));
+        }
+    };
 
     // Collect all samples
     let samples = collect_all_samples(video_track);
     if samples.is_empty() {
-        return Err(MultimediaError::InvalidMedia("No samples found in video track".into()));
+        return Err(MultimediaError::InvalidMedia(
+            "No samples found in video track".into(),
+        ));
     }
 
     // Create decoder
     let api = OpenH264API::from_source();
     let mut decoder = match Decoder::new(api) {
         Ok(d) => d,
-        Err(_) => return Err(MultimediaError::InvalidMedia("Failed to create H.264 decoder".into())),
+        Err(_) => {
+            return Err(MultimediaError::InvalidMedia(
+                "Failed to create H.264 decoder".into(),
+            ));
+        }
     };
 
     let (original_width, original_height) = match &video_track.trak.mdia.minf.stbl.stsd.avc1 {
         Some(avc1) => (avc1.width.into(), avc1.height.into()),
-        None => return Err(MultimediaError::InvalidMedia("Could not get video dimensions".into())),
+        None => {
+            return Err(MultimediaError::InvalidMedia(
+                "Could not get video dimensions".into(),
+            ));
+        }
     };
     let timescale = mp4.moov.mvhd.timescale;
 
@@ -544,7 +582,7 @@ fn native_export_ascii_frames(
             break;
         }
 
-        let pts = abs_timestamp as f64 / timescale as f64;
+        let _pts = abs_timestamp as f64 / timescale as f64;
 
         // Get sample data
         if let Ok(Some(sample_data)) = mp4.read_sample(video_track_id, sample_id) {
@@ -558,12 +596,8 @@ fn native_export_ascii_frames(
                         let dyn_img = DynamicImage::ImageRgb8(rgb);
 
                         // Convert to ASCII
-                        let ascii_lines = image_to_ascii(
-                            &dyn_img,
-                            output_width,
-                            output_height,
-                            color_mode,
-                        );
+                        let ascii_lines =
+                            image_to_ascii(&dyn_img, output_width, output_height, color_mode);
 
                         // Save to file
                         let frame_path = export_dir.join(format!("frame_{:06}.txt", frame_count));
@@ -588,6 +622,10 @@ fn native_export_ascii_frames(
         }
     }
 
-    println!("Export complete: {} frames saved to {}", frame_count, export_dir.display());
+    println!(
+        "Export complete: {} frames saved to {}",
+        frame_count,
+        export_dir.display()
+    );
     Ok(())
 }

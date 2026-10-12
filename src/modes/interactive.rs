@@ -1,10 +1,10 @@
 //! Interactive mode - guided user interaction
 
+use crate::multimedia::{TranscoderOptions, extract_frames, get_media_info, transcode};
+use crate::search::{FileEntry, create_search_engine, query_to_regex};
 use anyhow::Result;
-use dialoguer::{theme::ColorfulTheme, Select, Input, Confirm};
+use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 use std::path::PathBuf;
-use crate::multimedia::{get_media_info, transcode, extract_frames, TranscoderOptions};
-use crate::search::{create_search_engine, query_to_regex, FileEntry};
 
 /// Run in interactive mode
 pub fn run() -> Result<()> {
@@ -121,7 +121,9 @@ fn interactive_search(theme: &ColorfulTheme) -> Result<()> {
             Ok(results) => results,
             Err(e) => {
                 // NTFS failed, fall back to generic
-                eprintln!("⚠️  NTFS fast search failed: {e}\nFalling back to generic search (slower)...");
+                eprintln!(
+                    "⚠️  NTFS fast search failed: {e}\nFalling back to generic search (slower)..."
+                );
                 let mut engine = create_search_engine(true);
                 engine.search(&pattern, root.as_deref(), limit)?
             }
@@ -215,7 +217,11 @@ fn transcode_interactive(theme: &ColorfulTheme) -> Result<()> {
         .interact_text()?;
 
     let mut options = TranscoderOptions::default();
-    options.codec = if codec.trim().is_empty() { None } else { Some(codec) };
+    options.codec = if codec.trim().is_empty() {
+        None
+    } else {
+        Some(codec)
+    };
     options.bitrate = if !bitrate_str.trim().is_empty() {
         bitrate_str.parse().ok()
     } else {
@@ -294,7 +300,8 @@ fn extract_interactive(theme: &ColorfulTheme) -> Result<()> {
                 .with_prompt("Timestamps (comma-separated in seconds, e.g. 1.5,10,25)")
                 .interact_text()?;
 
-            let times: Vec<f64> = times_str.split(',')
+            let times: Vec<f64> = times_str
+                .split(',')
                 .map(|s| s.trim().parse())
                 .collect::<Result<_, _>>()
                 .map_err(|_| anyhow::anyhow!("Invalid timestamp format"))?;
@@ -307,7 +314,8 @@ fn extract_interactive(theme: &ColorfulTheme) -> Result<()> {
                 .with_prompt("Frame numbers (comma-separated, e.g. 1,100,500)")
                 .interact_text()?;
 
-            let frames: Vec<u64> = frames_str.split(',')
+            let frames: Vec<u64> = frames_str
+                .split(',')
                 .map(|s| s.trim().parse())
                 .collect::<Result<_, _>>()
                 .map_err(|_| anyhow::anyhow!("Invalid frame numbers format"))?;
@@ -357,7 +365,11 @@ fn extract_interactive(theme: &ColorfulTheme) -> Result<()> {
 
     println!("Extracting frames...");
     let count = extract_frames(&input, &output_dir, extract_options)?;
-    println!("✅ Extraction complete! {} frames saved to {}", count, output_dir.display());
+    println!(
+        "✅ Extraction complete! {} frames saved to {}",
+        count,
+        output_dir.display()
+    );
 
     Ok(())
 }
@@ -410,7 +422,11 @@ fn play_ascii_interactive(theme: &ColorfulTheme) -> Result<()> {
         .default(false)
         .interact()?;
 
-    let color_modes = vec!["none (grayscale ASCII)", "ansi256 (256-color)", "truecolor (24-bit RGB)"];
+    let color_modes = vec![
+        "none (grayscale ASCII)",
+        "ansi256 (256-color)",
+        "truecolor (24-bit RGB)",
+    ];
     let color_mode = Select::with_theme(theme)
         .with_prompt("Color output mode")
         .items(&color_modes)
@@ -486,9 +502,7 @@ fn play_ascii_interactive(theme: &ColorfulTheme) -> Result<()> {
     };
 
     // Catch panics to ensure terminal is always restored
-    let result = std::panic::catch_unwind(|| {
-        crate::multimedia::play_ascii(&input, options)
-    });
+    let result = std::panic::catch_unwind(|| crate::multimedia::play_ascii(&input, options));
 
     match result {
         Ok(Ok(())) => Ok(()),
@@ -513,7 +527,11 @@ fn play_ascii_interactive(theme: &ColorfulTheme) -> Result<()> {
 }
 
 fn print_results(results: Vec<FileEntry>, total_scanned: usize) {
-    println!("\n=== Found {} results (scanned {} files): ===", results.len(), total_scanned);
+    println!(
+        "\n=== Found {} results (scanned {} files): ===",
+        results.len(),
+        total_scanned
+    );
 
     if results.is_empty() {
         println!("No matches found.");
@@ -526,7 +544,10 @@ fn print_results(results: Vec<FileEntry>, total_scanned: usize) {
     }
 
     if results.len() > MAX_DISPLAY {
-        println!("... and {} more (use --limit to see more)", results.len() - MAX_DISPLAY);
+        println!(
+            "... and {} more (use --limit to see more)",
+            results.len() - MAX_DISPLAY
+        );
     }
 }
 

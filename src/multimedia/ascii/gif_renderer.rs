@@ -1,10 +1,10 @@
 //! ASCII grid to RGB image renderer using fontdue
 
-use image::{ImageBuffer, Rgb, Rgba, RgbaImage};
 use fontdue::{Font, FontSettings};
+use image::{ImageBuffer, Rgba, RgbaImage};
 
-use crate::multimedia::error::MultimediaError;
 use super::convert::AsciiCell;
+use crate::multimedia::error::MultimediaError;
 
 /// Rendering style for ASCII GIF
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,7 +30,11 @@ impl GifRenderer {
             GifStyle::Terminal => (16, 32),
             GifStyle::PixelArt => (4, 8),
         };
-        Ok(Self { font, cell_width, cell_height })
+        Ok(Self {
+            font,
+            cell_width,
+            cell_height,
+        })
     }
 
     /// Try to load a system monospace font
@@ -57,7 +61,7 @@ impl GifRenderer {
         }
 
         Err(MultimediaError::InvalidParameter(
-            "No monospace font found. Please install a system monospace font.".to_string()
+            "No monospace font found. Please install a system monospace font.".to_string(),
         ))
     }
 

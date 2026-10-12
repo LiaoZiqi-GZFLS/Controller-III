@@ -1,17 +1,17 @@
 //! Native Rust frame extractor (MP4 + H.264 only)
 //! Used as fallback when FFmpeg is not available
 
-use std::path::{Path, PathBuf};
+use image::{ExtendedColorType, ImageBuffer, RgbImage};
+use mp4::Mp4Reader;
+use openh264::formats::YUVSource;
+use openh264::{OpenH264API, decoder::DecodedYUV, decoder::Decoder};
 use std::fs;
 use std::fs::File;
-use mp4::Mp4Reader;
-use openh264::{decoder::Decoder, decoder::DecodedYUV, OpenH264API};
-use openh264::formats::YUVSource;
-use image::{ImageBuffer, RgbImage, ExtendedColorType};
+use std::path::{Path, PathBuf};
 
 use crate::multimedia::{
     error::MultimediaError,
-    traits::{FrameExtractor, ExtractOptions},
+    traits::{ExtractOptions, FrameExtractor},
 };
 
 /// Native MP4+H.264 frame extractor
@@ -38,9 +38,9 @@ impl NativeFrameExtractor {
                 if let Ok(mp4) = Mp4Reader::read_header(&mut file, file_size.len()) {
                     // Check if there's a video track
                     const VIDEO: mp4::FourCC = mp4::FourCC { value: *b"vide" }; // "vide"
-                    mp4.tracks().values().any(|track| {
-                        track.trak.mdia.hdlr.handler_type == VIDEO
-                    })
+                    mp4.tracks()
+                        .values()
+                        .any(|track| track.trak.mdia.hdlr.handler_type == VIDEO)
                 } else {
                     false
                 }
@@ -62,8 +62,9 @@ impl FrameExtractor for NativeFrameExtractor {
     ) -> Result<usize, MultimediaError> {
         // Create output directory if it doesn't exist
         if !output_dir.exists() {
-            fs::create_dir_all(output_dir)
-                .map_err(|_| MultimediaError::CreateOutputDir(output_dir.to_string_lossy().to_string()))?;
+            fs::create_dir_all(output_dir).map_err(|_| {
+                MultimediaError::CreateOutputDir(output_dir.to_string_lossy().to_string())
+            })?;
         }
 
         let mut file = File::open(input)?;
@@ -72,16 +73,27 @@ impl FrameExtractor for NativeFrameExtractor {
 
         // Find video track
         const VIDEO: mp4::FourCC = mp4::FourCC { value: *b"vide" }; // "vide"
-        let (video_track_id, video_track) = match mp4.tracks().iter()
-            .find(|(_, track)| track.trak.mdia.hdlr.handler_type == VIDEO) {
-                Some((id, track)) => (*id, track),
-                None => return Err(MultimediaError::InvalidMedia("No video track found in MP4".into())),
-            };
+        let (video_track_id, video_track) = match mp4
+            .tracks()
+            .iter()
+            .find(|(_, track)| track.trak.mdia.hdlr.handler_type == VIDEO)
+        {
+            Some((id, track)) => (*id, track),
+            None => {
+                return Err(MultimediaError::InvalidMedia(
+                    "No video track found in MP4".into(),
+                ));
+            }
+        };
 
         // Get video dimensions
         let (width, height) = match &video_track.trak.mdia.minf.stbl.stsd.avc1 {
             Some(avc1) => (avc1.width.into(), avc1.height.into()),
-            None => return Err(MultimediaError::InvalidMedia("Could not get video dimensions".into())),
+            None => {
+                return Err(MultimediaError::InvalidMedia(
+                    "Could not get video dimensions".into(),
+                ));
+            }
         };
 
         // Get timescale and duration
@@ -98,9 +110,7 @@ impl FrameExtractor for NativeFrameExtractor {
         let api = OpenH264API::from_source();
         let mut decoder = Decoder::new(api)?;
 
-        let input_stem = input.file_stem()
-            .unwrap_or_default()
-            .to_string_lossy();
+        let input_stem = input.file_stem().unwrap_or_default().to_string_lossy();
 
         let output_format = match options.format.as_str() {
             "png" => "png",
@@ -120,14 +130,18 @@ impl FrameExtractor for NativeFrameExtractor {
                     Ok(Some(yuv)) => {
                         // Convert YUV to RGB and save
                         if let Ok(rgb) = yuv_to_rgb(yuv, width, height) {
-                            let output_path: PathBuf = output_dir.join(
-                                format!("{}_frame_{:06}.{}", input_stem, i + 1, output_format)
-                            );
+                            let output_path: PathBuf = output_dir.join(format!(
+                                "{}_frame_{:06}.{}",
+                                input_stem,
+                                i + 1,
+                                output_format
+                            ));
                             match output_format {
                                 "png" => rgb.save(output_path)?,
                                 "jpeg" | "jpg" => {
                                     let mut out_file = std::fs::File::create(output_path)?;
-                                    let mut encoder = image::codecs::jpeg::JpegEncoder::new(&mut out_file);
+                                    let mut encoder =
+                                        image::codecs::jpeg::JpegEncoder::new(&mut out_file);
                                     encoder.encode(&rgb, width, height, ExtendedColorType::Rgb8)?;
                                 }
                                 _ => unreachable!(),
@@ -180,8 +194,10 @@ fn collect_samples<'a>(
             for &time in times {
                 let ts: u64 = (time * timescale as f64).round() as u64;
                 // Find closest sample to this timestamp
-                if let Some((sample_id, timestamp)) = track_samples.iter()
-                    .min_by_key(|(_, ts_sample)| (*ts_sample as i64 - ts as i64).abs()) {
+                if let Some((sample_id, timestamp)) = track_samples
+                    .iter()
+                    .min_by_key(|(_, ts_sample)| (*ts_sample as i64 - ts as i64).abs())
+                {
                     result.push((*sample_id, *timestamp));
                 }
             }
@@ -192,7 +208,8 @@ fn collect_samples<'a>(
             let mut result = Vec::new();
             for &frame_num in frame_nums {
                 if (frame_num as usize) <= track_samples.len() {
-                    if let Some((sample_id, timestamp)) = track_samples.get(frame_num as usize - 1) {
+                    if let Some((sample_id, timestamp)) = track_samples.get(frame_num as usize - 1)
+                    {
                         result.push((*sample_id, *timestamp));
                     }
                 }

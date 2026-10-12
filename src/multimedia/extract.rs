@@ -1,22 +1,18 @@
 //! Top-level frame extraction with backend auto-selection
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
-use crate::multimedia::{
-    error::MultimediaError,
-    traits::{FrameExtractor, ExtractOptions},
-    native::NativeFrameExtractor,
-};
 #[cfg(feature = "ffmpeg")]
 use crate::multimedia::ffmpeg::FfmpegFrameExtractor;
+use crate::multimedia::{
+    error::MultimediaError,
+    native::NativeFrameExtractor,
+    traits::{ExtractOptions, FrameExtractor},
+};
 
 /// Extract frames with automatic backend selection
-pub fn extract_frames(
-    input: &Path,
-    output_dir: &Path,
-    options: ExtractOptions,
-) -> Result<usize> {
+pub fn extract_frames(input: &Path, output_dir: &Path, options: ExtractOptions) -> Result<usize> {
     #[cfg(feature = "ffmpeg")]
     {
         let mut ffmpeg_extractor = FfmpegFrameExtractor::new();

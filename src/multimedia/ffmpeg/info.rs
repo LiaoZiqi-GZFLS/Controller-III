@@ -1,8 +1,8 @@
 //! FFmpeg implementation of media information provider
 
-use std::path::Path;
 #[cfg(feature = "ffmpeg")]
 use ffmpeg_the_third as ffmpeg;
+use std::path::Path;
 // Parameters accessed via method calls, no direct import needed
 
 use crate::multimedia::{
@@ -35,7 +35,11 @@ impl MediaInfoProvider for FfmpegMediaInfoProvider {
         };
 
         let bitrate = input_context.bit_rate();
-        let bitrate = if bitrate > 0 { Some(bitrate as u64) } else { None };
+        let bitrate = if bitrate > 0 {
+            Some(bitrate as u64)
+        } else {
+            None
+        };
 
         let mut streams = Vec::new();
 
@@ -70,7 +74,9 @@ impl MediaInfoProvider for FfmpegMediaInfoProvider {
 
             match codec_params.medium() {
                 ffmpeg::media::Type::Video => {
-                    if let Ok(context) = ffmpeg::codec::context::Context::from_parameters(codec_params) {
+                    if let Ok(context) =
+                        ffmpeg::codec::context::Context::from_parameters(codec_params)
+                    {
                         if let Ok(decoder) = context.decoder().video() {
                             info.width = Some(decoder.width());
                             info.height = Some(decoder.height());
@@ -83,7 +89,9 @@ impl MediaInfoProvider for FfmpegMediaInfoProvider {
                     }
                 }
                 ffmpeg::media::Type::Audio => {
-                    if let Ok(context) = ffmpeg::codec::context::Context::from_parameters(codec_params) {
+                    if let Ok(context) =
+                        ffmpeg::codec::context::Context::from_parameters(codec_params)
+                    {
                         if let Ok(decoder) = context.decoder().audio() {
                             info.sample_rate = Some(decoder.rate());
                             info.channels = Some(decoder.ch_layout().channels());

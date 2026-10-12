@@ -1,16 +1,14 @@
 //! Top-level media information with backend auto-selection
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
-use crate::multimedia::{
-    info::{MediaInfo},
-    traits::MediaInfoProvider,
-    native::NativeMediaInfoProvider,
-    error::MultimediaError,
-};
 #[cfg(feature = "ffmpeg")]
 use crate::multimedia::ffmpeg::FfmpegMediaInfoProvider;
+use crate::multimedia::{
+    error::MultimediaError, info::MediaInfo, native::NativeMediaInfoProvider,
+    traits::MediaInfoProvider,
+};
 
 /// Get media information with automatic backend selection
 pub fn get_media_info(input: &Path) -> Result<MediaInfo> {
@@ -33,6 +31,7 @@ pub fn get_media_info(input: &Path) -> Result<MediaInfo> {
     }
 
     Err(MultimediaError::Unsupported(
-        "Media information requires FFmpeg for non-MP4 files. Please install FFmpeg.".into()
-    ).into())
+        "Media information requires FFmpeg for non-MP4 files. Please install FFmpeg.".into(),
+    )
+    .into())
 }

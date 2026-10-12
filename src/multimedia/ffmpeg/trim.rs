@@ -1,14 +1,19 @@
 //! FFmpeg implementation of media trimming (cut by time range)
 
-use std::path::Path;
-use ffmpeg_the_third as ffmpeg;
-use ffmpeg::format;
 use ffmpeg::codec;
+use ffmpeg::format;
+use ffmpeg_the_third as ffmpeg;
+use std::path::Path;
 
 use crate::multimedia::error::MultimediaError;
 
 /// Trim media to a time range using FFmpeg
-pub fn trim(input: &Path, output: &Path, start_seconds: f64, duration_seconds: Option<f64>) -> Result<(), MultimediaError> {
+pub fn trim(
+    input: &Path,
+    output: &Path,
+    start_seconds: f64,
+    duration_seconds: Option<f64>,
+) -> Result<(), MultimediaError> {
     ffmpeg::init()?;
 
     // Open input

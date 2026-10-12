@@ -1,19 +1,19 @@
 //! Direct NTFS MFT reading for extremely fast whole-drive search
 
-use regex::Regex;
-use std::io::{self, Seek, BufReader};
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, Duration};
-use anyhow::{Result, anyhow};
-use mft::{MftParser, MftEntry};
 use crate::search::{
     engine::SearchEngine,
     entry::FileEntry,
     filter::matches_pattern,
-    sort::{sort_entries, apply_limit},
+    sort::{apply_limit, sort_entries},
 };
-use std::ptr::null_mut;
+use anyhow::{Result, anyhow};
+use mft::{MftEntry, MftParser};
+use regex::Regex;
 use std::env;
+use std::io::{self, BufReader, Seek};
+use std::path::{Path, PathBuf};
+use std::ptr::null_mut;
+use std::time::{Duration, SystemTime};
 use windows::Win32::Foundation::*;
 use windows::Win32::Security::*;
 use windows::Win32::System::Threading::*;
@@ -42,7 +42,12 @@ impl NtfsSearchEngine {
 
 #[cfg(windows)]
 impl SearchEngine for NtfsSearchEngine {
-    fn search(&mut self, pattern: &Regex, root: Option<&Path>, limit: Option<usize>) -> Result<Vec<FileEntry>> {
+    fn search(
+        &mut self,
+        pattern: &Regex,
+        root: Option<&Path>,
+        limit: Option<usize>,
+    ) -> Result<Vec<FileEntry>> {
         let root = root.ok_or_else(|| anyhow!("NTFS search requires a root volume"))?;
 
         // Convert to absolute path to correctly get volume component
@@ -62,13 +67,14 @@ impl SearchEngine for NtfsSearchEngine {
         let device_path = if volume_name.ends_with(':') {
             format!(r"\\.\{}", volume_name)
         } else {
-            return Err(anyhow!("Could not get drive letter from path '{}'. NTFS search requires a full Windows volume path (e.g., C:).", root.display()));
+            return Err(anyhow!(
+                "Could not get drive letter from path '{}'. NTFS search requires a full Windows volume path (e.g., C:).",
+                root.display()
+            ));
         };
 
         println!("Opening NTFS volume: {}", device_path);
-        let mut file = std::fs::OpenOptions::new()
-            .read(true)
-            .open(&device_path)?;
+        let mut file = std::fs::OpenOptions::new().read(true).open(&device_path)?;
 
         // Reset to beginning - MftParser will handle the rest
         file.seek(io::SeekFrom::Start(0))?;
@@ -79,7 +85,10 @@ impl SearchEngine for NtfsSearchEngine {
         let mut parser = match MftParser::from_read_seek(reader, None) {
             Ok(p) => p,
             Err(e) => {
-                return Err(anyhow!("Failed to parse NTFS MFT: {}\nMake sure the volume is formatted as NTFS.", e));
+                return Err(anyhow!(
+                    "Failed to parse NTFS MFT: {}\nMake sure the volume is formatted as NTFS.",
+                    e
+                ));
             }
         };
 
@@ -195,11 +204,8 @@ impl SearchEngine for NtfsSearchEngine {
 fn is_running_as_admin() -> Result<bool> {
     unsafe {
         let mut token = HANDLE(null_mut());
-        OpenProcessToken(
-            GetCurrentProcess(),
-            TOKEN_QUERY,
-            &mut token,
-        ).map_err(|e| anyhow!("{:?}", e))?;
+        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token)
+            .map_err(|e| anyhow!("{:?}", e))?;
 
         let mut elevation: TOKEN_ELEVATION = Default::default();
         let mut return_len = 0;
@@ -210,7 +216,8 @@ fn is_running_as_admin() -> Result<bool> {
             Some(std::mem::transmute(&mut elevation)),
             std::mem::size_of_val(&elevation) as u32,
             &mut return_len,
-        ).map_err(|e| anyhow!("{:?}", e))?;
+        )
+        .map_err(|e| anyhow!("{:?}", e))?;
 
         Ok(elevation.TokenIsElevated != 0)
     }
@@ -235,7 +242,11 @@ pub fn restart_as_admin() -> Result<()> {
             None,
             PCWSTR("runas\0".encode_utf16().collect::<Vec<u16>>().as_ptr()),
             PCWSTR(widestring(&exe_path_str).as_ptr()),
-            PCWSTR(if !args_str.is_empty() { widestring(&args_str).as_ptr() } else { std::ptr::null() }),
+            PCWSTR(if !args_str.is_empty() {
+                widestring(&args_str).as_ptr()
+            } else {
+                std::ptr::null()
+            }),
             PCWSTR::null(),
             SW_SHOWNORMAL,
         );

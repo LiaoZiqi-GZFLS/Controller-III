@@ -1,15 +1,15 @@
 //! FFmpeg implementation of frame extractor
 
-use std::path::{Path, PathBuf};
-use std::fs;
-use ffmpeg_the_third as ffmpeg;
-use ffmpeg::{decoder};
+use ffmpeg::decoder;
 use ffmpeg::media;
+use ffmpeg_the_third as ffmpeg;
 use image::{ImageBuffer, RgbImage};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::multimedia::{
     error::MultimediaError,
-    traits::{FrameExtractor, ExtractOptions, ExtractSelection},
+    traits::{ExtractOptions, ExtractSelection, FrameExtractor},
 };
 
 /// FFmpeg-based frame extractor
@@ -37,8 +37,9 @@ impl FrameExtractor for FfmpegFrameExtractor {
 
         // Create output directory if it doesn't exist
         if !output_dir.exists() {
-            fs::create_dir_all(output_dir)
-                .map_err(|_| MultimediaError::CreateOutputDir(output_dir.to_string_lossy().to_string()))?;
+            fs::create_dir_all(output_dir).map_err(|_| {
+                MultimediaError::CreateOutputDir(output_dir.to_string_lossy().to_string())
+            })?;
         }
 
         let mut input_ctx = ffmpeg::format::input(input)?;
@@ -67,9 +68,7 @@ impl FrameExtractor for FfmpegFrameExtractor {
         // Get width and height from opened decoder
         let (width, height) = (decoder_ctx.width(), decoder_ctx.height());
 
-        let input_stem = input.file_stem()
-            .unwrap_or_default()
-            .to_string_lossy();
+        let input_stem = input.file_stem().unwrap_or_default().to_string_lossy();
 
         let output_format = match options.format.as_str() {
             "png" => "png",
@@ -85,7 +84,13 @@ impl FrameExtractor for FfmpegFrameExtractor {
                     let pts = self.pts_for_time(time, time_base);
                     input_ctx.seek(pts, pts..=pts)?;
 
-                    if let Some(frame) = decode_next_frame(&mut input_ctx, stream_index, &mut decoder_ctx, width, height)? {
+                    if let Some(frame) = decode_next_frame(
+                        &mut input_ctx,
+                        stream_index,
+                        &mut decoder_ctx,
+                        width,
+                        height,
+                    )? {
                         save_frame(frame, output_dir, &input_stem, i + 1, output_format)?;
                         extracted += 1;
                     }
@@ -105,7 +110,13 @@ impl FrameExtractor for FfmpegFrameExtractor {
                     let pts = self.pts_for_time(time, time_base);
                     input_ctx.seek(pts, pts..=pts)?;
 
-                    if let Some(frame) = decode_next_frame(&mut input_ctx, stream_index, &mut decoder_ctx, width, height)? {
+                    if let Some(frame) = decode_next_frame(
+                        &mut input_ctx,
+                        stream_index,
+                        &mut decoder_ctx,
+                        width,
+                        height,
+                    )? {
                         save_frame(frame, output_dir, &input_stem, i + 1, output_format)?;
                         extracted += 1;
                     }
@@ -121,8 +132,16 @@ impl FrameExtractor for FfmpegFrameExtractor {
                     }
 
                     if current_frame % every == 0 {
-                        if let Some(frame) = decode_packet(&packet, &mut decoder_ctx, width, height)? {
-                            save_frame(frame, output_dir, &input_stem, (current_frame / every + 1) as usize, output_format)?;
+                        if let Some(frame) =
+                            decode_packet(&packet, &mut decoder_ctx, width, height)?
+                        {
+                            save_frame(
+                                frame,
+                                output_dir,
+                                &input_stem,
+                                (current_frame / every + 1) as usize,
+                                output_format,
+                            )?;
                             extracted += 1;
                         }
                     }
@@ -217,7 +236,8 @@ fn save_frame(
         }
     }
 
-    let output_path: PathBuf = output_dir.join(format!("{}_frame_{:06}.{}", input_stem, index, format));
+    let output_path: PathBuf =
+        output_dir.join(format!("{}_frame_{:06}.{}", input_stem, index, format));
 
     match format {
         "png" => rgb_frame.save(output_path)?,

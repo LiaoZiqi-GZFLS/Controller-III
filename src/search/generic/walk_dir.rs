@@ -1,15 +1,15 @@
 //! Generic parallel directory walking implementation using jwalk
 
-use regex::Regex;
-use std::path::Path;
-use anyhow::Result;
-use jwalk::WalkDir;
 use crate::search::{
     engine::SearchEngine,
     entry::FileEntry,
     filter::matches_pattern,
-    sort::{sort_entries, apply_limit},
+    sort::{apply_limit, sort_entries},
 };
+use anyhow::Result;
+use jwalk::WalkDir;
+use regex::Regex;
+use std::path::Path;
 
 /// Generic search engine that uses parallel directory walking
 /// Works cross-platform on any filesystem
@@ -25,7 +25,12 @@ impl GenericSearchEngine {
 }
 
 impl SearchEngine for GenericSearchEngine {
-    fn search(&mut self, pattern: &Regex, root: Option<&Path>, limit: Option<usize>) -> Result<Vec<FileEntry>> {
+    fn search(
+        &mut self,
+        pattern: &Regex,
+        root: Option<&Path>,
+        limit: Option<usize>,
+    ) -> Result<Vec<FileEntry>> {
         let root_path = root.unwrap_or_else(|| Path::new("."));
 
         let mut entries = Vec::new();
@@ -33,7 +38,8 @@ impl SearchEngine for GenericSearchEngine {
         use jwalk::Parallelism;
         for entry_result in WalkDir::new(root_path)
             .follow_links(false)
-            .parallelism(Parallelism::RayonNewPool(0)) {
+            .parallelism(Parallelism::RayonNewPool(0))
+        {
             let entry = match entry_result {
                 Ok(e) => e,
                 Err(_) => continue,

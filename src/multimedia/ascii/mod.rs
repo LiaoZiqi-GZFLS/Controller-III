@@ -5,24 +5,25 @@ use std::path::Path;
 
 use crate::multimedia::{
     error::MultimediaError,
-    traits::{AsciiPlayer, AsciiPlayOptions},
+    traits::{AsciiPlayOptions, AsciiPlayer},
 };
 
 #[cfg(feature = "ffmpeg")]
 use crate::multimedia::ascii::ffmpeg::FfmpegAsciiPlayer;
 
+mod convert;
 #[cfg(feature = "ffmpeg")]
 mod ffmpeg;
-mod convert;
-mod terminal;
-mod player;
-pub mod native;
-pub mod gif_renderer;
 pub mod gif_export;
+pub mod gif_renderer;
+pub mod native;
+mod player;
+mod terminal;
 
 pub use convert::*;
-pub use terminal::*;
+#[allow(unused_imports)]
 pub use player::*;
+pub use terminal::*;
 
 /// Play video as ASCII art in terminal with automatic backend selection
 pub fn play_ascii(input: &Path, options: AsciiPlayOptions) -> Result<()> {

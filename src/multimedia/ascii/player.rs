@@ -1,9 +1,9 @@
 //! Shared playback state machine and types for ASCII video player
 
-use std::time::{Instant, Duration};
 use std::sync::mpsc;
+use std::time::Instant;
 
-use crate::multimedia::traits::{AsciiPlayOptions, AsciiColorMode};
+use crate::multimedia::traits::{AsciiColorMode, AsciiPlayOptions};
 
 /// Decoded frame ready for rendering, pre-converted to ASCII
 #[derive(Debug, Clone)]

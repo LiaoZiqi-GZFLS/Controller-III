@@ -1,27 +1,26 @@
 //! FFmpeg-based ASCII video player with proper synchronization and controls
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use ffmpeg::software::{resampling, scaling};
+use ffmpeg::{decoder, media};
+use ffmpeg_the_third as ffmpeg;
+use image::{DynamicImage, ImageBuffer, RgbImage};
+use spin_sleep::SpinSleeper;
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
-use std::time::{Instant, Duration};
-use ffmpeg_the_third as ffmpeg;
-use ffmpeg::{decoder, media};
-use ffmpeg::software::{resampling, scaling};
-use image::{ImageBuffer, RgbImage, DynamicImage};
-use spin_sleep::SpinSleeper;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use std::time::{Duration, Instant};
 
 use crate::multimedia::{
-    error::MultimediaError,
-    traits::{AsciiPlayer, AsciiPlayOptions},
     ascii::{
-        calculate_dimensions, image_to_ascii, TerminalGuard,
+        TerminalGuard, calculate_dimensions, image_to_ascii,
         player::{
-            QueuedFrame, PlaybackContext, PlaybackState, UserAction,
-            DecodeMessage, create_frame_queue, create_decode_control,
-            DEFAULT_SEEK_STEP, DEFAULT_SPEED_STEP,
+            DEFAULT_SEEK_STEP, DEFAULT_SPEED_STEP, DecodeMessage, PlaybackContext, PlaybackState,
+            QueuedFrame, UserAction, create_decode_control, create_frame_queue,
         },
     },
+    error::MultimediaError,
+    traits::{AsciiPlayOptions, AsciiPlayer},
 };
 
 /// FFmpeg-based ASCII video player
@@ -34,11 +33,7 @@ impl FfmpegAsciiPlayer {
 }
 
 impl AsciiPlayer for FfmpegAsciiPlayer {
-    fn play(
-        &mut self,
-        input: &Path,
-        options: AsciiPlayOptions,
-    ) -> Result<(), MultimediaError> {
+    fn play(&mut self, input: &Path, options: AsciiPlayOptions) -> Result<(), MultimediaError> {
         ffmpeg::init()?;
 
         let mut input_ctx = ffmpeg::format::input(input)?;
@@ -65,7 +60,9 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                 video_stream_index = i;
                 video_time_base = s.time_base();
                 // Get original dimensions from parameters
-                if let Ok(context) = ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
+                if let Ok(context) =
+                    ffmpeg::codec::context::Context::from_parameters(s.parameters())
+                {
                     if let Ok(decoder) = context.decoder().video() {
                         original_width = decoder.width();
                         original_height = decoder.height();
@@ -190,7 +187,10 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
             match result {
                 Ok((sender, stream, rate)) => (sender, stream, rate),
                 Err(e) => {
-                    eprintln!("⚠️  Audio initialization failed: {}, playing without audio", e);
+                    eprintln!(
+                        "⚠️  Audio initialization failed: {}, playing without audio",
+                        e
+                    );
                     (None, None, 44100)
                 }
             }
@@ -243,19 +243,21 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
 
             for (i, s) in input_ctx.streams().enumerate() {
                 if i == video_stream_index {
-                    let context = match ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
-                        Ok(ctx) => ctx,
-                        Err(_) => return Ok(()),
-                    };
+                    let context =
+                        match ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
+                            Ok(ctx) => ctx,
+                            Err(_) => return Ok(()),
+                        };
                     video_decoder_ctx = match context.decoder().video() {
                         Ok(d) => Some(d),
                         Err(_) => return Ok(()),
                     };
                 } else if Some(i) == audio_stream_index {
-                    let context = match ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
-                        Ok(ctx) => ctx,
-                        Err(_) => continue,
-                    };
+                    let context =
+                        match ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
+                            Ok(ctx) => ctx,
+                            Err(_) => continue,
+                        };
                     audio_decoder_ctx = match context.decoder().audio() {
                         Ok(d) => Some(d),
                         Err(_) => continue,
@@ -263,7 +265,9 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                 }
             }
 
-            let Some(mut video_decoder_ctx) = video_decoder_ctx else { return Ok(()) };
+            let Some(mut video_decoder_ctx) = video_decoder_ctx else {
+                return Ok(());
+            };
 
             // Get original dimensions from decoder
             original_width = video_decoder_ctx.width();
@@ -291,19 +295,30 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
             // Create resampler inside this thread if needed
             let mut audio_resampler: Option<resampling::Context> = None;
             // We always resample to stereo f32 for cpal output, recreate parameters here because FFmpeg types aren't Send/Sync
-            let out_sample_format = ffmpeg::format::Sample::F32(ffmpeg::format::sample::Type::Packed);
+            let out_sample_format =
+                ffmpeg::format::Sample::F32(ffmpeg::format::sample::Type::Packed);
             let out_ch_layout = ffmpeg::channel_layout::ChannelLayout::STEREO;
             if audio_sender_clone.is_some() {
-                if let (Some(_), Some(ref mut audio_dec)) = (audio_stream_index, audio_decoder_ctx.as_mut()) {
+                if let (Some(_), Some(ref mut audio_dec)) =
+                    (audio_stream_index, audio_decoder_ctx.as_mut())
+                {
                     let in_format = audio_dec.format();
                     let in_rate = audio_dec.rate();
                     let in_ch_layout = audio_dec.ch_layout();
 
-                    if in_format != out_sample_format || (in_rate as u32) != out_rate_clone || in_ch_layout != out_ch_layout {
+                    if in_format != out_sample_format
+                        || (in_rate as u32) != out_rate_clone
+                        || in_ch_layout != out_ch_layout
+                    {
                         audio_resampler = resampling::Context::get2(
-                            in_format, in_ch_layout, in_rate as u32,
-                            out_sample_format, out_ch_layout.clone(), out_rate_clone,
-                        ).ok();
+                            in_format,
+                            in_ch_layout,
+                            in_rate as u32,
+                            out_sample_format,
+                            out_ch_layout.clone(),
+                            out_rate_clone,
+                        )
+                        .ok();
                     }
                 }
             }
@@ -325,19 +340,21 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
 
             for (i, s) in input_ctx.streams().enumerate() {
                 if i == video_stream_index_clone {
-                    let context = match ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
-                        Ok(ctx) => ctx,
-                        Err(_) => return Ok(()),
-                    };
+                    let context =
+                        match ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
+                            Ok(ctx) => ctx,
+                            Err(_) => return Ok(()),
+                        };
                     video_decoder_ctx = match context.decoder().video() {
                         Ok(d) => Some(d),
                         Err(_) => return Ok(()),
                     };
                 } else if Some(i) == audio_stream_index_clone {
-                    let context = match ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
-                        Ok(ctx) => ctx,
-                        Err(_) => continue,
-                    };
+                    let context =
+                        match ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
+                            Ok(ctx) => ctx,
+                            Err(_) => continue,
+                        };
                     audio_decoder_ctx = match context.decoder().audio() {
                         Ok(d) => Some(d),
                         Err(_) => continue,
@@ -345,7 +362,9 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                 }
             }
 
-            let Some(mut video_decoder_ctx) = video_decoder_ctx else { return Ok(()) };
+            let Some(mut video_decoder_ctx) = video_decoder_ctx else {
+                return Ok(());
+            };
 
             let orig_w = original_width;
             let orig_h = original_height;
@@ -366,7 +385,9 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                         video_decoder_ctx.flush();
                         // Seek input to target pts (in seconds)
                         let time_base = video_time_base;
-                        let target_ts = (target_pts / time_base.numerator() as f64 * time_base.denominator() as f64) as i64;
+                        let target_ts = (target_pts / time_base.numerator() as f64
+                            * time_base.denominator() as f64)
+                            as i64;
                         // ffmpeg-the-third seek API: seek to stream timestamp
                         let _ = input_ctx.seek(target_ts, ..);
                         // After seek, restart iterator from new position
@@ -402,11 +423,14 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                 if stream_index == video_stream_index_clone {
                     // Calculate pts in seconds
                     let pts_seconds = if let Some(pts) = packet.pts() {
-                        pts as f64 * video_time_base.numerator() as f64 / video_time_base.denominator() as f64
+                        pts as f64 * video_time_base.numerator() as f64
+                            / video_time_base.denominator() as f64
                     } else {
                         0.0
                     };
-                    let duration_seconds = packet.duration() as f64 * video_time_base.numerator() as f64 / video_time_base.denominator() as f64;
+                    let duration_seconds = packet.duration() as f64
+                        * video_time_base.numerator() as f64
+                        / video_time_base.denominator() as f64;
                     let duration_seconds = if duration_seconds <= 0.0 {
                         1.0 / 30.0
                     } else {
@@ -414,7 +438,12 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                     };
 
                     // Decode the next frame
-                    match decode_packet_video(&packet, &mut video_decoder_ctx, original_width, original_height) {
+                    match decode_packet_video(
+                        &packet,
+                        &mut video_decoder_ctx,
+                        original_width,
+                        original_height,
+                    ) {
                         Ok(Some(frame)) => {
                             // Convert any format to RGB
                             let rgb = match frame_to_rgb(&frame, sws_context.as_mut()) {
@@ -432,13 +461,16 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                             );
 
                             // Queue the frame for rendering
-                            if frame_sender.send(QueuedFrame {
-                                ascii_lines,
-                                pts: pts_seconds,
-                                duration: duration_seconds,
-                                original_width: orig_w,
-                                original_height: orig_h,
-                            }).is_err() {
+                            if frame_sender
+                                .send(QueuedFrame {
+                                    ascii_lines,
+                                    pts: pts_seconds,
+                                    duration: duration_seconds,
+                                    original_width: orig_w,
+                                    original_height: orig_h,
+                                })
+                                .is_err()
+                            {
                                 // Main thread dropped receiver, exit
                                 break 'decode Ok(());
                             }
@@ -450,7 +482,13 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                 } else if Some(stream_index) == audio_stream_index_clone {
                     // Process audio packet - send to audio queue
                     if let Some(ref mut audio_dec) = audio_decoder_ctx {
-                        if let Some(audio_frames) = decode_packet_audio(&packet, audio_dec, &mut audio_resampler, out_sample_format, &out_ch_layout) {
+                        if let Some(audio_frames) = decode_packet_audio(
+                            &packet,
+                            audio_dec,
+                            &mut audio_resampler,
+                            out_sample_format,
+                            &out_ch_layout,
+                        ) {
                             if let Some(sender) = &audio_sender {
                                 for frame in audio_frames {
                                     // Use try_send - if channel is full, we're ahead of playback, drop frames to avoid blocking video
@@ -529,12 +567,13 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                             );
                             if ctx.handle_resize(new_width, new_height) {
                                 // Dimensions changed, send to decode thread and update
-                                let _ = control_sender.send(DecodeMessage::Resize(new_width, new_height));
+                                let _ = control_sender
+                                    .send(DecodeMessage::Resize(new_width, new_height));
                             }
                         }
                     }
                     UserAction::None => {}
-                }
+                },
                 Err(e) => {
                     eprintln!("Terminal input error: {}", e);
                     break 'main;
@@ -552,7 +591,11 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
             // If paused, just keep displaying current frame
             if ctx.state == PlaybackState::Paused {
                 if let Some(frame) = &current_frame {
-                    let fps = if ctx.show_fps { Some(ctx.calculate_fps(render_start)) } else { None };
+                    let fps = if ctx.show_fps {
+                        Some(ctx.calculate_fps(render_start))
+                    } else {
+                        None
+                    };
                     let _ = TerminalGuard::render_frame(
                         &frame.ascii_lines,
                         fps,
@@ -567,7 +610,7 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
 
             // Get next frame from queue if we need it
             let need_next = match &current_frame {
-                None => true, // No frame yet
+                None => true,                                            // No frame yet
                 Some(frame) => current_pts > frame.pts + frame.duration, // Need next frame
             };
 
@@ -575,20 +618,20 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                 // Try to get next frame from queue
                 while let Ok(next_frame) = frame_receiver.try_recv() {
                     // Skip frames that are still before current playback position
-                let mut next_frame = next_frame;
-                loop {
-                    if next_frame.pts + next_frame.duration < current_pts {
-                        ctx.frames_dropped += 1;
-                        match frame_receiver.try_recv() {
-                            Ok(new_next) => next_frame = new_next,
-                            Err(_) => break,
+                    let mut next_frame = next_frame;
+                    loop {
+                        if next_frame.pts + next_frame.duration < current_pts {
+                            ctx.frames_dropped += 1;
+                            match frame_receiver.try_recv() {
+                                Ok(new_next) => next_frame = new_next,
+                                Err(_) => break,
+                            }
+                        } else {
+                            break;
                         }
-                    } else {
-                        break;
                     }
-                }
-                current_frame = Some(next_frame);
-                break;
+                    current_frame = Some(next_frame);
+                    break;
                 }
             }
 
@@ -605,7 +648,11 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
 
                 // Only render if this is a new frame (not already rendered)
                 if frame.pts != ctx.last_rendered_pts {
-                    let fps = if ctx.show_fps { Some(ctx.calculate_fps(render_start)) } else { None };
+                    let fps = if ctx.show_fps {
+                        Some(ctx.calculate_fps(render_start))
+                    } else {
+                        None
+                    };
                     let _ = TerminalGuard::render_frame(
                         &frame.ascii_lines,
                         fps,
@@ -618,19 +665,19 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
                 }
 
                 // If we're way behind, drop frames to catch up
-            let mut next_frame = match frame_receiver.try_recv() {
-                Ok(f) => f,
-                Err(_) => return Ok(()),
-            };
-            // Keep dropping frames until we get one that's current
-            while next_frame.pts < current_pts {
-                ctx.frames_dropped += 1;
-                match frame_receiver.try_recv() {
-                    Ok(f) => next_frame = f,
-                    Err(_) => break,
+                let mut next_frame = match frame_receiver.try_recv() {
+                    Ok(f) => f,
+                    Err(_) => return Ok(()),
+                };
+                // Keep dropping frames until we get one that's current
+                while next_frame.pts < current_pts {
+                    ctx.frames_dropped += 1;
+                    match frame_receiver.try_recv() {
+                        Ok(f) => next_frame = f,
+                        Err(_) => break,
+                    }
                 }
-            }
-            current_frame = Some(next_frame);
+                current_frame = Some(next_frame);
             } else {
                 // No frame available yet - brief sleep to avoid busy waiting
                 sleeper.sleep(Duration::from_millis(1));
@@ -650,7 +697,10 @@ impl AsciiPlayer for FfmpegAsciiPlayer {
         let _ = _decode_handle.join();
 
         // Print stats after playback ends
-        println!("\x1b[0mPlayback complete: {} frames rendered, {} frames dropped", ctx.frames_rendered, ctx.frames_dropped);
+        println!(
+            "\x1b[0mPlayback complete: {} frames rendered, {} frames dropped",
+            ctx.frames_rendered, ctx.frames_dropped
+        );
 
         Ok(())
     }
@@ -701,11 +751,7 @@ fn decode_packet_audio(
                 continue;
             };
             unsafe {
-                converted.alloc(
-                    out_format,
-                    out_ch_layout.channels() as usize,
-                    mask,
-                );
+                converted.alloc(out_format, out_ch_layout.channels() as usize, mask);
             }
             if resampler.run(&frame, &mut converted).is_ok() {
                 // Convert converted frame to Vec<f32> for cpal
@@ -747,7 +793,12 @@ fn samples_to_vec(frame: &ffmpeg::frame::Audio) -> Vec<f32> {
                     // Each sample is 4 bytes
                     for sample_bytes in data.chunks_exact(4) {
                         if sample_bytes.len() == 4 {
-                            let bytes = [sample_bytes[0], sample_bytes[1], sample_bytes[2], sample_bytes[3]];
+                            let bytes = [
+                                sample_bytes[0],
+                                sample_bytes[1],
+                                sample_bytes[2],
+                                sample_bytes[3],
+                            ];
                             result.push(f32::from_le_bytes(bytes));
                         }
                     }
@@ -761,7 +812,12 @@ fn samples_to_vec(frame: &ffmpeg::frame::Audio) -> Vec<f32> {
                         let data = frame.data(ch);
                         for sample_bytes in data.chunks_exact(4) {
                             if sample_bytes.len() == 4 {
-                                let bytes = [sample_bytes[0], sample_bytes[1], sample_bytes[2], sample_bytes[3]];
+                                let bytes = [
+                                    sample_bytes[0],
+                                    sample_bytes[1],
+                                    sample_bytes[2],
+                                    sample_bytes[3],
+                                ];
                                 result.push(f32::from_le_bytes(bytes));
                             }
                         }
@@ -781,7 +837,7 @@ fn samples_to_vec(frame: &ffmpeg::frame::Audio) -> Vec<f32> {
 /// Convert any video frame format to RGB8 image buffer using pre-allocated swscale context
 fn frame_to_rgb(
     frame: &ffmpeg::frame::Video,
-    _sws_context: Option<&mut scaling::Context>
+    _sws_context: Option<&mut scaling::Context>,
 ) -> Result<RgbImage, MultimediaError> {
     let width = frame.width();
     let height = frame.height();
@@ -837,7 +893,9 @@ fn frame_to_rgb(
 
         if let Some(context) = _sws_context {
             if context.run(frame, &mut temp_rgb_frame).is_err() {
-                return Err(MultimediaError::InvalidMedia("Failed to convert frame format".into()));
+                return Err(MultimediaError::InvalidMedia(
+                    "Failed to convert frame format".into(),
+                ));
             }
         }
 
@@ -892,11 +950,19 @@ fn export_ascii_frames(
         if i == video_stream_index {
             let context = match ffmpeg::codec::context::Context::from_parameters(s.parameters()) {
                 Ok(ctx) => ctx,
-                Err(_) => return Err(MultimediaError::InvalidMedia("Failed to create decoder".into())),
+                Err(_) => {
+                    return Err(MultimediaError::InvalidMedia(
+                        "Failed to create decoder".into(),
+                    ));
+                }
             };
             video_decoder_ctx = match context.decoder().video() {
                 Ok(d) => Some(d),
-                Err(_) => return Err(MultimediaError::InvalidMedia("Failed to open video decoder".into())),
+                Err(_) => {
+                    return Err(MultimediaError::InvalidMedia(
+                        "Failed to open video decoder".into(),
+                    ));
+                }
             };
             break;
         }
@@ -911,7 +977,9 @@ fn export_ascii_frames(
 
     // Create swscale context once (only used for non-YUV420p formats)
     let mut sws_context: Option<scaling::Context> = None;
-    if video_decoder_ctx.format() != ffmpeg::format::Pixel::RGB24 && video_decoder_ctx.format() != ffmpeg::format::Pixel::YUV420P {
+    if video_decoder_ctx.format() != ffmpeg::format::Pixel::RGB24
+        && video_decoder_ctx.format() != ffmpeg::format::Pixel::YUV420P
+    {
         sws_context = match scaling::Context::get(
             video_decoder_ctx.format(),
             video_decoder_ctx.height(),
@@ -922,7 +990,11 @@ fn export_ascii_frames(
             scaling::Flags::BILINEAR,
         ) {
             Ok(ctx) => Some(ctx),
-            Err(_) => return Err(MultimediaError::InvalidMedia("Failed to create scaler".into())),
+            Err(_) => {
+                return Err(MultimediaError::InvalidMedia(
+                    "Failed to create scaler".into(),
+                ));
+            }
         };
     }
 
@@ -938,7 +1010,10 @@ fn export_ascii_frames(
 
         packet_count += 1;
         if packet_count % 50 == 0 {
-            println!("  Processed {} packets, decoded {} frames...", packet_count, frame_count);
+            println!(
+                "  Processed {} packets, decoded {} frames...",
+                packet_count, frame_count
+            );
         }
 
         if frame_count >= max_frames {
@@ -946,7 +1021,12 @@ fn export_ascii_frames(
         }
 
         // Decode the frame
-        match decode_packet_video(&packet, &mut video_decoder_ctx, original_width, original_height) {
+        match decode_packet_video(
+            &packet,
+            &mut video_decoder_ctx,
+            original_width,
+            original_height,
+        ) {
             Ok(Some(frame)) => {
                 // Convert to RGB
                 let rgb = match frame_to_rgb(&frame, sws_context.as_mut()) {
@@ -956,12 +1036,7 @@ fn export_ascii_frames(
                 let dyn_img = DynamicImage::ImageRgb8(rgb);
 
                 // Convert to ASCII
-                let ascii_lines = image_to_ascii(
-                    &dyn_img,
-                    output_width,
-                    output_height,
-                    color_mode,
-                );
+                let ascii_lines = image_to_ascii(&dyn_img, output_width, output_height, color_mode);
 
                 // Save to file with padded numbering
                 let frame_path = export_dir.join(format!("frame_{:06}.txt", frame_count));
@@ -984,6 +1059,10 @@ fn export_ascii_frames(
         }
     }
 
-    println!("Export complete: {} frames saved to {}", frame_count, export_dir.display());
+    println!(
+        "Export complete: {} frames saved to {}",
+        frame_count,
+        export_dir.display()
+    );
     Ok(())
 }

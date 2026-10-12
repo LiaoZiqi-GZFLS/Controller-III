@@ -1,13 +1,13 @@
 //! Terminal handling for ASCII playback - setup, cleanup, rendering, event handling
 
-use std::io::{self, Write};
-use std::time::Duration;
 use crossterm::{
     ExecutableCommand,
-    terminal::{self, size, LeaveAlternateScreen, EnterAlternateScreen},
-    cursor::{Hide, Show, MoveTo},
+    cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyModifiers},
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen, size},
 };
+use std::io::{self, Write};
+use std::time::Duration;
 
 use super::player::UserAction;
 
@@ -34,7 +34,10 @@ impl TerminalGuard {
 
         let last_size = Self::get_size()?;
 
-        Ok(Self { cleaned_up: false, last_size })
+        Ok(Self {
+            cleaned_up: false,
+            last_size,
+        })
     }
 
     /// Get current terminal size in characters (columns, rows)
@@ -46,7 +49,13 @@ impl TerminalGuard {
     /// Render ASCII frame to terminal
     /// Moves cursor to top-left and prints each line
     /// Minimizes flicker by not clearing screen every frame
-    pub fn render_frame(ascii_lines: &[String], fps: Option<f64>, speed: f64, current_pts: f64, duration: f64) -> io::Result<()> {
+    pub fn render_frame(
+        ascii_lines: &[String],
+        fps: Option<f64>,
+        speed: f64,
+        current_pts: f64,
+        duration: f64,
+    ) -> io::Result<()> {
         let mut stdout = io::stdout();
 
         // Move cursor to top-left corner
@@ -68,7 +77,11 @@ impl TerminalGuard {
         // Progress bar
         let progress = current_pts / duration;
         let progress_pct = (progress * 100.0).round() as u8;
-        status.push_str(&format!("[{}%] {}", progress_pct, Self::format_time(current_pts)));
+        status.push_str(&format!(
+            "[{}%] {}",
+            progress_pct,
+            Self::format_time(current_pts)
+        ));
         if duration.is_finite() {
             status.push_str(&format!("/{}", Self::format_time(duration)));
         }

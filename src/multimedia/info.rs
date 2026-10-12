@@ -48,7 +48,10 @@ impl MediaInfo {
         let mut output = String::new();
 
         output.push_str(&format!("File: {}\n", self.file_path));
-        output.push_str(&format!("Size: {:.2} MB\n", self.file_size as f64 / (1024.0 * 1024.0)));
+        output.push_str(&format!(
+            "Size: {:.2} MB\n",
+            self.file_size as f64 / (1024.0 * 1024.0)
+        ));
 
         if let Some(dur) = self.duration {
             let minutes = (dur / 60.0).floor();
@@ -57,16 +60,25 @@ impl MediaInfo {
         }
 
         if let Some(b) = self.bitrate {
-            output.push_str(&format!("Overall bitrate: {:.1} Mbps\n", b as f64 / 1_000_000.0));
+            output.push_str(&format!(
+                "Overall bitrate: {:.1} Mbps\n",
+                b as f64 / 1_000_000.0
+            ));
         }
 
         output.push_str(&format!("\nStreams ({}):\n", self.num_streams));
 
         for (i, stream) in self.streams.iter().enumerate() {
-            output.push_str(&format!("\n[{}] {}: codec {}\n", i, stream.stream_type, stream.codec));
+            output.push_str(&format!(
+                "\n[{}] {}: codec {}\n",
+                i, stream.stream_type, stream.codec
+            ));
 
             if let Some(b) = stream.bitrate {
-                output.push_str(&format!("       Bitrate: {:.1} Mbps\n", b as f64 / 1_000_000.0));
+                output.push_str(&format!(
+                    "       Bitrate: {:.1} Mbps\n",
+                    b as f64 / 1_000_000.0
+                ));
             }
 
             if let (Some(w), Some(h)) = (stream.width, stream.height) {

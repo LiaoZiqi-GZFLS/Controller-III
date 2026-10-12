@@ -1,13 +1,13 @@
 //! FFmpeg implementation of media transcoder
 
-use std::path::Path;
-use ffmpeg_the_third as ffmpeg;
 use ffmpeg::codec;
-#[allow(unused_imports)]
-use ffmpeg::{decoder, encoder};
 use ffmpeg::format;
 use ffmpeg::media;
 use ffmpeg::software::scaling;
+#[allow(unused_imports)]
+use ffmpeg::{decoder, encoder};
+use ffmpeg_the_third as ffmpeg;
+use std::path::Path;
 
 use crate::multimedia::{
     error::MultimediaError,
@@ -38,14 +38,20 @@ impl Transcoder for FfmpegTranscoder {
         // Guess output format from extension
         let mut output_ctx = format::output(output)?;
 
-        use ffmpeg::codec::{encoder, decoder};
+        use ffmpeg::codec::{decoder, encoder};
 
         // First pass: add all output streams and setup encoders
         // This ends the immutable borrow before we need mutable access for packet reading
         let output_ctx_ptr = &mut output_ctx as *mut _;
 
         enum Encoder {
-            Video(encoder::Video, decoder::Video, Option<scaling::Context>, u32, u32),
+            Video(
+                encoder::Video,
+                decoder::Video,
+                Option<scaling::Context>,
+                u32,
+                u32,
+            ),
             Audio(encoder::Audio, decoder::Audio),
         }
 
@@ -87,8 +93,14 @@ impl Transcoder for FfmpegTranscoder {
             let encoder = match medium {
                 media::Type::Video => {
                     if let Ok(mut video_dec) = decode_ctx.video() {
-                        let width = options.resolution.map(|(w, _)| w).unwrap_or(video_dec.width());
-                        let height = options.resolution.map(|(_, h)| h).unwrap_or(video_dec.height());
+                        let width = options
+                            .resolution
+                            .map(|(w, _)| w)
+                            .unwrap_or(video_dec.width());
+                        let height = options
+                            .resolution
+                            .map(|(_, h)| h)
+                            .unwrap_or(video_dec.height());
                         let mut video_encoder = encode_builder.encoder().video()?;
                         // Keep the same time base as input for compatibility
                         video_encoder.set_time_base(stream.time_base());
@@ -102,7 +114,8 @@ impl Transcoder for FfmpegTranscoder {
                         // Must set pixel format - mpeg4 and many encoders require it explicitly
                         // YUV420P is universally supported and what almost all video decoders output
                         video_encoder.set_format(ffmpeg::format::Pixel::YUV420P);
-                        let mut video_encoder = video_encoder.open_with::<ffmpeg::Dictionary>(Default::default())?;
+                        let mut video_encoder =
+                            video_encoder.open_with::<ffmpeg::Dictionary>(Default::default())?;
                         out_stream.set_parameters(ffmpeg::codec::Parameters::from(&video_encoder));
 
                         // Create swscale context for pixel format conversion and rescaling
@@ -110,18 +123,32 @@ impl Transcoder for FfmpegTranscoder {
                         let src_format = video_dec.format();
                         let mut sws_ctx = None;
 
-                        if src_format != ffmpeg::format::Pixel::YUV420P || width != video_dec.width() || height != video_dec.height() {
+                        if src_format != ffmpeg::format::Pixel::YUV420P
+                            || width != video_dec.width()
+                            || height != video_dec.height()
+                        {
                             // Need conversion/rescaler
                             // Parameter order for ffmpeg-the-third API: src_format, src_height, src_width, dst_format, dst_height, dst_width
                             // (it swaps them internally to match C libswscale signature)
                             sws_ctx = scaling::Context::get(
-                                src_format, video_dec.height(), video_dec.width(),
-                                ffmpeg::format::Pixel::YUV420P, height, width,
+                                src_format,
+                                video_dec.height(),
+                                video_dec.width(),
+                                ffmpeg::format::Pixel::YUV420P,
+                                height,
+                                width,
                                 scaling::Flags::BILINEAR,
-                            ).ok();
+                            )
+                            .ok();
                         }
 
-                        Some(Encoder::Video(video_encoder, video_dec, sws_ctx, width, height))
+                        Some(Encoder::Video(
+                            video_encoder,
+                            video_dec,
+                            sws_ctx,
+                            width,
+                            height,
+                        ))
                     } else {
                         None
                     }
@@ -129,15 +156,19 @@ impl Transcoder for FfmpegTranscoder {
                 media::Type::Audio => {
                     if let Ok(mut audio_dec) = decode_ctx.audio() {
                         let mut audio_encoder = encode_builder.encoder().audio()?;
-                        audio_encoder.set_time_base(ffmpeg::Rational::new(1, audio_dec.rate() as i32));
+                        audio_encoder
+                            .set_time_base(ffmpeg::Rational::new(1, audio_dec.rate() as i32));
                         if let Some(bitrate_kbps) = options.bitrate {
                             audio_encoder.set_bit_rate((bitrate_kbps * 1000) as usize);
                         }
                         audio_encoder.set_rate(audio_dec.rate() as i32);
                         audio_encoder.set_ch_layout(audio_dec.ch_layout());
                         // Must set sample format - AAC specifically requires fltp = float planar
-                        audio_encoder.set_format(ffmpeg::format::Sample::F32(ffmpeg::format::sample::Type::Planar));
-                        let mut audio_encoder = audio_encoder.open_with::<ffmpeg::Dictionary>(Default::default())?;
+                        audio_encoder.set_format(ffmpeg::format::Sample::F32(
+                            ffmpeg::format::sample::Type::Planar,
+                        ));
+                        let mut audio_encoder =
+                            audio_encoder.open_with::<ffmpeg::Dictionary>(Default::default())?;
                         out_stream.set_parameters(ffmpeg::codec::Parameters::from(&audio_encoder));
                         Some(Encoder::Audio(audio_encoder, audio_dec))
                     } else {
@@ -216,7 +247,9 @@ impl Transcoder for FfmpegTranscoder {
                             let mut out_packet = ffmpeg::Packet::empty();
                             while video_enc.receive_packet(&mut out_packet).is_ok() {
                                 out_packet.set_stream(*out_idx);
-                                unsafe { out_packet.write_interleaved(&mut *output_ctx_ptr)?; }
+                                unsafe {
+                                    out_packet.write_interleaved(&mut *output_ctx_ptr)?;
+                                }
                                 video_frames_written += 1;
                             }
                         }
@@ -240,7 +273,9 @@ impl Transcoder for FfmpegTranscoder {
                             let mut out_packet = ffmpeg::Packet::empty();
                             while audio_enc.receive_packet(&mut out_packet).is_ok() {
                                 out_packet.set_stream(*out_idx);
-                                unsafe { out_packet.write_interleaved(&mut *output_ctx_ptr)?; }
+                                unsafe {
+                                    out_packet.write_interleaved(&mut *output_ctx_ptr)?;
+                                }
                             }
                         }
                     }
@@ -248,7 +283,10 @@ impl Transcoder for FfmpegTranscoder {
             }
         }
 
-        println!("Processed {} video packets, wrote {} video frames", video_packets_processed, video_frames_written);
+        println!(
+            "Processed {} video packets, wrote {} video frames",
+            video_packets_processed, video_frames_written
+        );
 
         // Flush all encoders
         for (_input_index, out_idx, encoder) in &mut streams {
@@ -258,7 +296,9 @@ impl Transcoder for FfmpegTranscoder {
                     let mut out_packet = ffmpeg::Packet::empty();
                     while video_enc.receive_packet(&mut out_packet).is_ok() {
                         out_packet.set_stream(*out_idx);
-                        unsafe { out_packet.write_interleaved(&mut *output_ctx_ptr)?; }
+                        unsafe {
+                            out_packet.write_interleaved(&mut *output_ctx_ptr)?;
+                        }
                         video_frames_written += 1;
                     }
                 }
@@ -267,7 +307,9 @@ impl Transcoder for FfmpegTranscoder {
                     let mut out_packet = ffmpeg::Packet::empty();
                     while audio_enc.receive_packet(&mut out_packet).is_ok() {
                         out_packet.set_stream(*out_idx);
-                        unsafe { out_packet.write_interleaved(&mut *output_ctx_ptr)?; }
+                        unsafe {
+                            out_packet.write_interleaved(&mut *output_ctx_ptr)?;
+                        }
                     }
                 }
             }
@@ -276,7 +318,10 @@ impl Transcoder for FfmpegTranscoder {
         // Write trailer
         output_ctx.write_trailer()?;
 
-        println!("Total: {} video frames written to output", video_frames_written);
+        println!(
+            "Total: {} video frames written to output",
+            video_frames_written
+        );
 
         Ok(())
     }

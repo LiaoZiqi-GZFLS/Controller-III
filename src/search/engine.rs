@@ -1,14 +1,19 @@
 //! Search engine trait and factory
 
+use crate::search::entry::FileEntry;
+use anyhow::Result;
 use regex::Regex;
 use std::path::Path;
-use anyhow::Result;
-use crate::search::entry::FileEntry;
 
 /// Abstract search engine interface
 pub trait SearchEngine {
     /// Perform search with given pattern and optional root directory
-    fn search(&mut self, pattern: &Regex, root: Option<&Path>, limit: Option<usize>) -> Result<Vec<FileEntry>>;
+    fn search(
+        &mut self,
+        pattern: &Regex,
+        root: Option<&Path>,
+        limit: Option<usize>,
+    ) -> Result<Vec<FileEntry>>;
 
     /// Get total number of files scanned
     fn count(&self) -> usize;

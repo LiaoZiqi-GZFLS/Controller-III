@@ -1,7 +1,7 @@
 //! Convert RGB frames to ASCII art
 
-use image::{DynamicImage, GenericImageView, Rgb};
 use crate::multimedia::traits::AsciiColorMode;
+use image::{DynamicImage, GenericImageView, Rgb};
 
 /// An ASCII cell with its display character and RGB color
 #[derive(Debug, Clone)]
@@ -12,7 +12,8 @@ pub struct AsciiCell {
 
 /// Standard ASCII gradient from darkest to lightest
 /// More characters = smoother gradient
-const ASCII_GRADIENT: &[u8] = b" .'`^\",:;Il!i~+_-=?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+const ASCII_GRADIENT: &[u8] =
+    b" .'`^\",:;Il!i~+_-=?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
 
 /// Convert RGB frame to a grid of ASCII cells with per-cell color
 pub fn frame_to_ascii_grid(

@@ -2,9 +2,9 @@
 
 pub mod engine;
 pub mod entry;
-pub mod sort;
 pub mod filter;
 pub mod generic;
+pub mod sort;
 
 #[cfg(windows)]
 pub mod ntfs;

@@ -8,7 +8,9 @@ pub enum MultimediaError {
     #[error("FFmpeg error: {0}")]
     FfmpegError(String),
 
-    #[error("FFmpeg libraries not found. Please install FFmpeg development libraries for full multimedia features.")]
+    #[error(
+        "FFmpeg libraries not found. Please install FFmpeg development libraries for full multimedia features."
+    )]
     FfmpegNotFound,
 
     #[error("I/O error: {0}")]

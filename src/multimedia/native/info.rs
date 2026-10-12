@@ -1,8 +1,8 @@
 //! Native MP4 implementation of media information provider
 
-use std::path::Path;
-use std::fs::File;
 use mp4::Mp4Reader;
+use std::fs::File;
+use std::path::Path;
 
 use crate::multimedia::{
     error::MultimediaError,
@@ -36,13 +36,15 @@ impl MediaInfoProvider for NativeMediaInfoProvider {
                 hdlr if hdlr == SOUND => "audio",
                 hdlr if hdlr == VIDEO => "video",
                 _ => continue,
-            }.to_string();
+            }
+            .to_string();
 
             let codec = match stream_type.as_str() {
                 "video" => "h.264", // most common in MP4
-                "audio" => "aac",  // most common in MP4
+                "audio" => "aac",   // most common in MP4
                 _ => "unknown",
-            }.to_string();
+            }
+            .to_string();
 
             let mut info = StreamInfo {
                 index: i,
@@ -67,7 +69,13 @@ impl MediaInfoProvider for NativeMediaInfoProvider {
                 let track_duration = track.trak.tkhd.duration;
                 if track_duration != 0 {
                     // Count total frames from stts entries
-                    let frame_count: u32 = track.trak.mdia.minf.stbl.stts.entries
+                    let frame_count: u32 = track
+                        .trak
+                        .mdia
+                        .minf
+                        .stbl
+                        .stts
+                        .entries
                         .iter()
                         .map(|entry| entry.sample_count)
                         .sum();

@@ -1,12 +1,12 @@
 //! FFmpeg implementation of audio extraction from video
 
-use std::path::Path;
-use ffmpeg_the_third as ffmpeg;
+use ffmpeg::codec;
+use ffmpeg::codec::{decoder, encoder};
 use ffmpeg::format;
 use ffmpeg::media;
-use ffmpeg::codec;
-use ffmpeg::codec::{encoder, decoder};
 use ffmpeg::software::resampling;
+use ffmpeg_the_third as ffmpeg;
+use std::path::Path;
 
 use crate::multimedia::error::MultimediaError;
 
@@ -15,7 +15,12 @@ enum AudioEncoder {
 }
 
 /// Extract audio track from media (discard all video streams)
-pub fn extract_audio(input: &Path, output: &Path, bitrate_kbps: Option<u32>, codec_name: Option<String>) -> Result<(), MultimediaError> {
+pub fn extract_audio(
+    input: &Path,
+    output: &Path,
+    bitrate_kbps: Option<u32>,
+    codec_name: Option<String>,
+) -> Result<(), MultimediaError> {
     ffmpeg::init()?;
 
     // Open input
@@ -102,7 +107,8 @@ pub fn extract_audio(input: &Path, output: &Path, bitrate_kbps: Option<u32>, cod
         }
         audio_encoder.set_ch_layout(audio_dec.ch_layout());
 
-        let mut opened_audio_encoder = audio_encoder.open_with::<ffmpeg::Dictionary>(Default::default())?;
+        let mut opened_audio_encoder =
+            audio_encoder.open_with::<ffmpeg::Dictionary>(Default::default())?;
         out_stream.set_parameters(codec::Parameters::from(&opened_audio_encoder));
 
         // Create resampler if needed - convert from input format/rate/channels to output
@@ -113,14 +119,26 @@ pub fn extract_audio(input: &Path, output: &Path, bitrate_kbps: Option<u32>, cod
 
         let final_out_ch_layout_opened = opened_audio_encoder.ch_layout();
 
-        if in_format != final_out_format || in_rate != final_out_rate || in_ch_layout != final_out_ch_layout_opened {
+        if in_format != final_out_format
+            || in_rate != final_out_rate
+            || in_ch_layout != final_out_ch_layout_opened
+        {
             resampler = resampling::Context::get2(
-                in_format, in_ch_layout, in_rate,
-                final_out_format, final_out_ch_layout_opened, final_out_rate,
-            ).ok();
+                in_format,
+                in_ch_layout,
+                in_rate,
+                final_out_format,
+                final_out_ch_layout_opened,
+                final_out_rate,
+            )
+            .ok();
         }
 
-        streams.push((actual_input_index, out_stream.index(), AudioEncoder::Audio(opened_audio_encoder, audio_dec, resampler)));
+        streams.push((
+            actual_input_index,
+            out_stream.index(),
+            AudioEncoder::Audio(opened_audio_encoder, audio_dec, resampler),
+        ));
     }
 
     if streams.is_empty() {
@@ -187,7 +205,9 @@ pub fn extract_audio(input: &Path, output: &Path, bitrate_kbps: Option<u32>, cod
                         while audio_enc.receive_packet(&mut out_packet).is_ok() {
                             out_packet.set_stream(*out_idx);
                             out_packet.rescale_ts(audio_dec.time_base(), out_time_base);
-                            unsafe { out_packet.write_interleaved(&mut *output_ctx_ptr)?; }
+                            unsafe {
+                                out_packet.write_interleaved(&mut *output_ctx_ptr)?;
+                            }
                         }
                     }
                 }
@@ -206,7 +226,9 @@ pub fn extract_audio(input: &Path, output: &Path, bitrate_kbps: Option<u32>, cod
                 while audio_enc.receive_packet(&mut out_packet).is_ok() {
                     out_packet.set_stream(*out_idx);
                     out_packet.rescale_ts(audio_dec.time_base(), out_time_base);
-                    unsafe { out_packet.write_interleaved(&mut *output_ctx_ptr)?; }
+                    unsafe {
+                        out_packet.write_interleaved(&mut *output_ctx_ptr)?;
+                    }
                     packets_written += 1;
                 }
             }
@@ -216,7 +238,12 @@ pub fn extract_audio(input: &Path, output: &Path, bitrate_kbps: Option<u32>, cod
     // Write trailer
     output_ctx.write_trailer()?;
 
-    println!("Extracted {} audio stream(s), processed {} frames, wrote {} packets", streams.len(), frames_processed, packets_written);
+    println!(
+        "Extracted {} audio stream(s), processed {} frames, wrote {} packets",
+        streams.len(),
+        frames_processed,
+        packets_written
+    );
 
     Ok(())
 }

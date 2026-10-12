@@ -1,7 +1,7 @@
 //! Pattern filtering
 
-use regex::{Regex, RegexBuilder};
 use crate::search::entry::FileEntry;
+use regex::{Regex, RegexBuilder};
 
 /// Check if file entry matches the search pattern
 pub fn matches_pattern(entry: &FileEntry, pattern: &Regex) -> bool {
@@ -60,7 +60,10 @@ pub fn query_to_regex(query: &str, case_sensitive: bool) -> Regex {
 }
 
 fn regex_special_char(c: char) -> bool {
-    matches!(c, '^' | '$' | '.' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '+' | '-')
+    matches!(
+        c,
+        '^' | '$' | '.' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '+' | '-'
+    )
 }
 
 fn escape_regex(s: &str) -> String {

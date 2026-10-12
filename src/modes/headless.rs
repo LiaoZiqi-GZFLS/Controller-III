@@ -1,10 +1,13 @@
 //! Headless mode - non-interactive execution
 
+use crate::cli::args::MultimediaSubcommands;
+use crate::multimedia::{
+    AsciiColorMode, AsciiPlayOptions, GifExportOptions, GifStyle, TranscoderOptions,
+    export_ascii_gif, extract_audio, extract_frames, get_media_info, play_ascii, transcode, trim,
+};
+use crate::search::{create_search_engine, query_to_regex};
 use anyhow::Result;
 use std::path::PathBuf;
-use crate::cli::args::MultimediaSubcommands;
-use crate::multimedia::{get_media_info, transcode, extract_frames, trim, extract_audio, play_ascii, export_ascii_gif, TranscoderOptions, AsciiPlayOptions, AsciiColorMode, GifExportOptions, GifStyle};
-use crate::search::{create_search_engine, query_to_regex};
 
 /// Run in headless mode
 pub fn run(
@@ -54,7 +57,13 @@ pub fn run_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
             Ok(())
         }
 
-        MultimediaSubcommands::Transcode { input, output, codec, bitrate, resolution } => {
+        MultimediaSubcommands::Transcode {
+            input,
+            output,
+            codec,
+            bitrate,
+            resolution,
+        } => {
             let mut options = TranscoderOptions::default();
             options.codec = codec;
             options.bitrate = bitrate;
@@ -66,7 +75,9 @@ pub fn run_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
                     match (w, h) {
                         (Some(w), Some(h)) => Some((w, h)),
                         _ => {
-                            eprintln!("Warning: Invalid resolution format, expected WxH (e.g. 1920x1080), ignoring");
+                            eprintln!(
+                                "Warning: Invalid resolution format, expected WxH (e.g. 1920x1080), ignoring"
+                            );
                             None
                         }
                     }
@@ -83,60 +94,108 @@ pub fn run_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
             Ok(())
         }
 
-        MultimediaSubcommands::ExtractFrames { input, output_dir, times, frames, format, every } => {
+        MultimediaSubcommands::ExtractFrames {
+            input,
+            output_dir,
+            times,
+            frames,
+            format,
+            every,
+        } => {
             use crate::multimedia::{ExtractOptions, ExtractSelection};
             let selection = match (times, frames, every) {
                 (Some(times_str), None, None) => {
-                    let times: Vec<f64> = times_str.split(',')
+                    let times: Vec<f64> = times_str
+                        .split(',')
                         .map(|s| s.trim().parse())
                         .collect::<Result<_, _>>()
-                        .map_err(|_| anyhow::anyhow!("Invalid times format, expected comma-separated numbers"))?;
+                        .map_err(|_| {
+                            anyhow::anyhow!(
+                                "Invalid times format, expected comma-separated numbers"
+                            )
+                        })?;
                     ExtractSelection::Times(times)
                 }
 
                 (None, Some(frames_str), None) => {
-                    let frames: Vec<u64> = frames_str.split(',')
+                    let frames: Vec<u64> = frames_str
+                        .split(',')
                         .map(|s| s.trim().parse())
                         .collect::<Result<_, _>>()
-                        .map_err(|_| anyhow::anyhow!("Invalid frame numbers format, expected comma-separated integers"))?;
+                        .map_err(|_| {
+                            anyhow::anyhow!(
+                                "Invalid frame numbers format, expected comma-separated integers"
+                            )
+                        })?;
                     ExtractSelection::Frames(frames)
                 }
 
-                (None, None, Some(n)) => {
-                    ExtractSelection::EveryNth(n)
-                }
+                (None, None, Some(n)) => ExtractSelection::EveryNth(n),
 
                 _ => {
-                    anyhow::bail!("Exactly one selection method must be used: --times, --frames, or --every");
+                    anyhow::bail!(
+                        "Exactly one selection method must be used: --times, --frames, or --every"
+                    );
                 }
             };
 
-            let extract_options = ExtractOptions {
-                selection,
-                format,
-            };
+            let extract_options = ExtractOptions { selection, format };
 
-            println!("Extracting frames from {} to {}...", input.display(), output_dir.display());
+            println!(
+                "Extracting frames from {} to {}...",
+                input.display(),
+                output_dir.display()
+            );
             let count = extract_frames(&input, &output_dir, extract_options)?;
             println!("Done! Extracted {} frames.", count);
             Ok(())
         }
 
-        MultimediaSubcommands::Trim { input, output, start, duration } => {
-            println!("Trimming {} -> {}... start={}s duration={:?}s", input.display(), output.display(), start, duration);
+        MultimediaSubcommands::Trim {
+            input,
+            output,
+            start,
+            duration,
+        } => {
+            println!(
+                "Trimming {} -> {}... start={}s duration={:?}s",
+                input.display(),
+                output.display(),
+                start,
+                duration
+            );
             trim(&input, &output, start, duration)?;
             println!("Done!");
             Ok(())
         }
 
-        MultimediaSubcommands::ExtractAudio { input, output, bitrate, codec } => {
-            println!("Extracting audio from {} -> {}...", input.display(), output.display());
+        MultimediaSubcommands::ExtractAudio {
+            input,
+            output,
+            bitrate,
+            codec,
+        } => {
+            println!(
+                "Extracting audio from {} -> {}...",
+                input.display(),
+                output.display()
+            );
             extract_audio(&input, &output, bitrate, codec)?;
             println!("Done!");
             Ok(())
         }
 
-        MultimediaSubcommands::PlayAscii { input, width, height, speed, show_fps, color_mode, scale_mode, export, export_max } => {
+        MultimediaSubcommands::PlayAscii {
+            input,
+            width,
+            height,
+            speed,
+            show_fps,
+            color_mode,
+            scale_mode,
+            export,
+            export_max,
+        } => {
             let color_mode = match color_mode.as_str() {
                 "none" => AsciiColorMode::None,
                 "ansi256" => AsciiColorMode::Ansi256,
@@ -150,9 +209,14 @@ pub fn run_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
             let scale_mode = match scale_mode.as_str() {
                 "none" | "no" => crate::multimedia::traits::AsciiScaleMode::NoScale,
                 "fit" | "fill" | "window" => crate::multimedia::traits::AsciiScaleMode::FitWindow,
-                "keep" | "aspect" | "keep-aspect" => crate::multimedia::traits::AsciiScaleMode::KeepAspect,
+                "keep" | "aspect" | "keep-aspect" => {
+                    crate::multimedia::traits::AsciiScaleMode::KeepAspect
+                }
                 _ => {
-                    eprintln!("Warning: Unknown scale mode {}, using keep-aspect", scale_mode);
+                    eprintln!(
+                        "Warning: Unknown scale mode {}, using keep-aspect",
+                        scale_mode
+                    );
                     crate::multimedia::traits::AsciiScaleMode::KeepAspect
                 }
             };
@@ -169,16 +233,32 @@ pub fn run_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
             };
 
             if options.export_dir.is_some() {
-                println!("Exporting ASCII frames from {} to directory...", input.display());
+                println!(
+                    "Exporting ASCII frames from {} to directory...",
+                    input.display()
+                );
             } else {
-                println!("Playing {} as ASCII art... (Press q or Ctrl+C to quit)", input.display());
+                println!(
+                    "Playing {} as ASCII art... (Press q or Ctrl+C to quit)",
+                    input.display()
+                );
             }
             play_ascii(&input, options)?;
             println!("Done!");
             Ok(())
         }
 
-        MultimediaSubcommands::AsciiGif { input, output, fps, width, height, style, color_mode, start, duration } => {
+        MultimediaSubcommands::AsciiGif {
+            input,
+            output,
+            fps,
+            width,
+            height,
+            style,
+            color_mode,
+            start,
+            duration,
+        } => {
             let style = match style.as_str() {
                 "terminal" => GifStyle::Terminal,
                 "pixel-art" | "pixelart" => GifStyle::PixelArt,
@@ -208,7 +288,11 @@ pub fn run_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
                 duration,
             };
 
-            println!("Exporting ASCII GIF: {} -> {}...", input.display(), output.display());
+            println!(
+                "Exporting ASCII GIF: {} -> {}...",
+                input.display(),
+                output.display()
+            );
             export_ascii_gif(&input, &output, options)?;
             println!("Done! Saved to {}", output.display());
             Ok(())
@@ -217,9 +301,12 @@ pub fn run_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
 }
 
 fn print_results(results: Vec<crate::search::entry::FileEntry>, total_scanned: usize) {
-    println!("Found {} results (scanned {} files):", results.len(), total_scanned);
+    println!(
+        "Found {} results (scanned {} files):",
+        results.len(),
+        total_scanned
+    );
     for (i, result) in results.iter().enumerate() {
         println!("{:4}: {}", i + 1, result.path.display());
     }
 }
-

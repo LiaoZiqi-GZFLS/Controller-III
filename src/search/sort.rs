@@ -1,29 +1,22 @@
 //! Sorting logic - "user files first" heuristic
 
+use crate::search::entry::FileEntry;
 use once_cell::sync::Lazy;
 use rayon::prelude::*;
-use crate::search::entry::FileEntry;
 
 /// Common user document extensions that should get priority
 static USER_EXTENSIONS: Lazy<Vec<&'static str>> = Lazy::new(|| {
     vec![
         // Documents
-        "txt", "md", "doc", "docx", "pdf", "odt", "rtf",
-        "xls", "xlsx", "csv", "ppt", "pptx",
+        "txt", "md", "doc", "docx", "pdf", "odt", "rtf", "xls", "xlsx", "csv", "ppt", "pptx",
         // Images
-        "jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "ico",
-        "tiff", "psd", "raw",
+        "jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "ico", "tiff", "psd", "raw",
         // Videos
-        "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm",
-        // Audio
-        "mp3", "wav", "flac", "ogg", "aac",
-        // Archives
-        "zip", "rar", "7z", "tar", "gz", "bz2",
-        // Source code
-        "rs", "c", "cpp", "h", "py", "js", "ts", "html", "css",
-        "go", "java", "rb", "php", "json", "yaml", "yml", "toml",
-        "xml", "sql", "sh", "bat", "ps1",
-        // Bookmarks/Notes
+        "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", // Audio
+        "mp3", "wav", "flac", "ogg", "aac", // Archives
+        "zip", "rar", "7z", "tar", "gz", "bz2", // Source code
+        "rs", "c", "cpp", "h", "py", "js", "ts", "html", "css", "go", "java", "rb", "php", "json",
+        "yaml", "yml", "toml", "xml", "sql", "sh", "bat", "ps1", // Bookmarks/Notes
         "epub", "mobi", "pdf", "djvu",
     ]
 });
@@ -31,25 +24,36 @@ static USER_EXTENSIONS: Lazy<Vec<&'static str>> = Lazy::new(|| {
 /// System file extensions that should be deprioritized
 static SYSTEM_EXTENSIONS: Lazy<Vec<&'static str>> = Lazy::new(|| {
     vec![
-        "sys", "dll", "exe", "bin", "obj", "lib", "a", "o",
-        "pdb", "ilk", "exp", "res", "rc", "manifest",
+        "sys", "dll", "exe", "bin", "obj", "lib", "a", "o", "pdb", "ilk", "exp", "res", "rc",
+        "manifest",
     ]
 });
 
 /// System directories that should be deprioritized
 static SYSTEM_DIRS: Lazy<Vec<&'static str>> = Lazy::new(|| {
     vec![
-        r"\Windows\", r"\Program Files\", r"\Program Files (x86)\",
-        r"\ProgramData\", r"\AppData\Local\", r"\AppData\Roaming\",
-        r"\System Volume Information\", r"\$Recycle.Bin\",
+        r"\Windows\",
+        r"\Program Files\",
+        r"\Program Files (x86)\",
+        r"\ProgramData\",
+        r"\AppData\Local\",
+        r"\AppData\Roaming\",
+        r"\System Volume Information\",
+        r"\$Recycle.Bin\",
     ]
 });
 
 /// User directories that should get priority
 static USER_DIRS: Lazy<Vec<&'static str>> = Lazy::new(|| {
     vec![
-        r"\Users\", r"\Documents\", r"\Desktop\", r"\Downloads\",
-        r"\Pictures\", r"\Music\", r"\Videos\", r"\OneDrive\",
+        r"\Users\",
+        r"\Documents\",
+        r"\Desktop\",
+        r"\Downloads\",
+        r"\Pictures\",
+        r"\Music\",
+        r"\Videos\",
+        r"\OneDrive\",
     ]
 });
 

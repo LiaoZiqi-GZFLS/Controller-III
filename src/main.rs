@@ -3,20 +3,21 @@ use clap::Parser;
 
 mod cli;
 mod modes;
-mod search;
 mod multimedia;
+mod search;
 
 use cli::args::{CliArgs, Commands, MultimediaSubcommands};
+use multimedia::{
+    AsciiColorMode, AsciiPlayOptions, GifExportOptions, GifStyle, TranscoderOptions,
+    export_ascii_gif, extract_frames, get_media_info, play_ascii, transcode,
+};
 use search::{create_search_engine, query_to_regex};
-use multimedia::{get_media_info, transcode, extract_frames, play_ascii, export_ascii_gif,
-    TranscoderOptions, AsciiPlayOptions, AsciiColorMode,
-    GifExportOptions, GifStyle};
 
 #[cfg(windows)]
 fn enable_windows_ansi_support() {
     use windows::Win32::System::Console::{
-        GetConsoleMode, GetStdHandle, SetConsoleMode, CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
-        STD_OUTPUT_HANDLE,
+        CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
+        STD_OUTPUT_HANDLE, SetConsoleMode,
     };
 
     unsafe {
@@ -58,131 +59,165 @@ fn main() {
                 }
             };
 
-            println!("Found {} results (scanned {} files):", results.len(), engine.count());
+            println!(
+                "Found {} results (scanned {} files):",
+                results.len(),
+                engine.count()
+            );
             for result in results {
                 println!("{}", result.path.display());
             }
             Ok(())
         } else if cli.headless {
-            modes::headless::run(cli.config, cli.search, cli.root, cli.force_generic, cli.case_sensitive, cli.limit)
+            modes::headless::run(
+                cli.config,
+                cli.search,
+                cli.root,
+                cli.force_generic,
+                cli.case_sensitive,
+                cli.limit,
+            )
         } else {
             modes::interactive::run()
         }
     })();
 
-fn handle_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
-    match cmd {
-        MultimediaSubcommands::Info { input } => {
-            let info = get_media_info(&input)?;
-            println!("\n{}", info.format());
-            Ok(())
-        }
+    fn handle_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
+        match cmd {
+            MultimediaSubcommands::Info { input } => {
+                let info = get_media_info(&input)?;
+                println!("\n{}", info.format());
+                Ok(())
+            }
 
-        MultimediaSubcommands::Transcode { input, output, codec, bitrate, resolution } => {
-            let mut options = TranscoderOptions::default();
-            options.codec = codec;
-            options.bitrate = bitrate;
-            options.resolution = if let Some(res_str) = resolution {
-                // Parse resolution string like "1920x1080"
-                let parts: Vec<&str> = res_str.split('x').collect();
-                if parts.len() == 2 {
-                    let w: Option<u32> = parts[0].parse().ok();
-                    let h: Option<u32> = parts[1].parse().ok();
-                    match (w, h) {
-                        (Some(w), Some(h)) => Some((w, h)),
-                        _ => {
-                            eprintln!("Warning: Invalid resolution format, expected WxH (e.g. 1920x1080), ignoring");
-                            None
+            MultimediaSubcommands::Transcode {
+                input,
+                output,
+                codec,
+                bitrate,
+                resolution,
+            } => {
+                let mut options = TranscoderOptions::default();
+                options.codec = codec;
+                options.bitrate = bitrate;
+                options.resolution = if let Some(res_str) = resolution {
+                    // Parse resolution string like "1920x1080"
+                    let parts: Vec<&str> = res_str.split('x').collect();
+                    if parts.len() == 2 {
+                        let w: Option<u32> = parts[0].parse().ok();
+                        let h: Option<u32> = parts[1].parse().ok();
+                        match (w, h) {
+                            (Some(w), Some(h)) => Some((w, h)),
+                            _ => {
+                                eprintln!(
+                                    "Warning: Invalid resolution format, expected WxH (e.g. 1920x1080), ignoring"
+                                );
+                                None
+                            }
                         }
+                    } else {
+                        None
                     }
                 } else {
                     None
-                }
-            } else {
-                None
-            };
+                };
 
-            println!("Transcoding {} -> {}...", input.display(), output.display());
-            transcode(&input, &output, options)?;
-            println!("Done!");
-            Ok(())
-        }
+                println!("Transcoding {} -> {}...", input.display(), output.display());
+                transcode(&input, &output, options)?;
+                println!("Done!");
+                Ok(())
+            }
 
-        MultimediaSubcommands::ExtractFrames { input, output_dir, times, frames, format, every } => {
-            use crate::multimedia::{ExtractOptions, ExtractSelection};
+            MultimediaSubcommands::ExtractFrames {
+                input,
+                output_dir,
+                times,
+                frames,
+                format,
+                every,
+            } => {
+                use crate::multimedia::{ExtractOptions, ExtractSelection};
 
-            let selection = match (times, frames, every) {
-                (Some(times_str), None, None) => {
-                    let times: Vec<f64> = times_str.split(',')
-                        .map(|s| s.trim().parse())
-                        .collect::<Result<_, _>>()
-                        .map_err(|_| anyhow::anyhow!("Invalid times format, expected comma-separated numbers"))?;
-                    ExtractSelection::Times(times)
-                }
+                let selection = match (times, frames, every) {
+                    (Some(times_str), None, None) => {
+                        let times: Vec<f64> = times_str
+                            .split(',')
+                            .map(|s| s.trim().parse())
+                            .collect::<Result<_, _>>()
+                            .map_err(|_| {
+                                anyhow::anyhow!(
+                                    "Invalid times format, expected comma-separated numbers"
+                                )
+                            })?;
+                        ExtractSelection::Times(times)
+                    }
 
-                (None, Some(frames_str), None) => {
-                    let frames: Vec<u64> = frames_str.split(',')
+                    (None, Some(frames_str), None) => {
+                        let frames: Vec<u64> = frames_str.split(',')
                         .map(|s| s.trim().parse())
                         .collect::<Result<_, _>>()
                         .map_err(|_| anyhow::anyhow!("Invalid frame numbers format, expected comma-separated integers"))?;
-                    ExtractSelection::Frames(frames)
-                }
+                        ExtractSelection::Frames(frames)
+                    }
 
-                (None, None, Some(n)) => {
-                    ExtractSelection::EveryNth(n)
-                }
+                    (None, None, Some(n)) => ExtractSelection::EveryNth(n),
 
-                _ => {
-                    anyhow::bail!("Exactly one selection method must be used: --times, --frames, or --every");
-                }
-            };
+                    _ => {
+                        anyhow::bail!(
+                            "Exactly one selection method must be used: --times, --frames, or --every"
+                        );
+                    }
+                };
 
-            let extract_options = ExtractOptions {
-                selection,
-                format,
-            };
+                let extract_options = ExtractOptions { selection, format };
 
-            println!("Extracting frames from {} to {}...", input.display(), output_dir.display());
-            let count = extract_frames(&input, &output_dir, extract_options)?;
-            println!("Done! Extracted {} frames.", count);
-            Ok(())
-        }
+                println!(
+                    "Extracting frames from {} to {}...",
+                    input.display(),
+                    output_dir.display()
+                );
+                let count = extract_frames(&input, &output_dir, extract_options)?;
+                println!("Done! Extracted {} frames.", count);
+                Ok(())
+            }
 
-        MultimediaSubcommands::Trim { input, output, start, duration } => {
-            println!("Trimming {} -> {}... start={}s duration={:?}s", input.display(), output.display(), start, duration);
-            crate::multimedia::trim(&input, &output, start, duration)?;
-            println!("Done!");
-            Ok(())
-        }
+            MultimediaSubcommands::Trim {
+                input,
+                output,
+                start,
+                duration,
+            } => {
+                println!(
+                    "Trimming {} -> {}... start={}s duration={:?}s",
+                    input.display(),
+                    output.display(),
+                    start,
+                    duration
+                );
+                crate::multimedia::trim(&input, &output, start, duration)?;
+                println!("Done!");
+                Ok(())
+            }
 
-        MultimediaSubcommands::ExtractAudio { input, output, bitrate, codec } => {
-            println!("Extracting audio from {} -> {}...", input.display(), output.display());
-            crate::multimedia::extract_audio(&input, &output, bitrate, codec)?;
-            println!("Done!");
-            Ok(())
-        }
+            MultimediaSubcommands::ExtractAudio {
+                input,
+                output,
+                bitrate,
+                codec,
+            } => {
+                println!(
+                    "Extracting audio from {} -> {}...",
+                    input.display(),
+                    output.display()
+                );
+                crate::multimedia::extract_audio(&input, &output, bitrate, codec)?;
+                println!("Done!");
+                Ok(())
+            }
 
-        MultimediaSubcommands::AsciiGif { input, output, fps, width, height, style, color_mode, start, duration } => {
-            let style = match style.as_str() {
-                "terminal" => GifStyle::Terminal,
-                "pixel-art" | "pixelart" => GifStyle::PixelArt,
-                _ => {
-                    eprintln!("Warning: Unknown style '{}', using terminal", style);
-                    GifStyle::Terminal
-                }
-            };
-
-            let color_mode = match color_mode.as_str() {
-                "none" => AsciiColorMode::None,
-                "ansi256" => AsciiColorMode::Ansi256,
-                "truecolor" | "true-color" | "rgb" => AsciiColorMode::TrueColor,
-                _ => {
-                    eprintln!("Warning: Unknown color mode '{}', using none", color_mode);
-                    AsciiColorMode::None
-                }
-            };
-
-            let options = GifExportOptions {
+            MultimediaSubcommands::AsciiGif {
+                input,
+                output,
                 fps,
                 width,
                 height,
@@ -190,57 +225,112 @@ fn handle_multimedia(cmd: MultimediaSubcommands) -> Result<()> {
                 color_mode,
                 start,
                 duration,
-            };
+            } => {
+                let style = match style.as_str() {
+                    "terminal" => GifStyle::Terminal,
+                    "pixel-art" | "pixelart" => GifStyle::PixelArt,
+                    _ => {
+                        eprintln!("Warning: Unknown style '{}', using terminal", style);
+                        GifStyle::Terminal
+                    }
+                };
 
-            println!("Exporting ASCII GIF: {} -> {}...", input.display(), output.display());
-            export_ascii_gif(&input, &output, options)?;
-            println!("Done! Saved to {}", output.display());
-            Ok(())
-        }
+                let color_mode = match color_mode.as_str() {
+                    "none" => AsciiColorMode::None,
+                    "ansi256" => AsciiColorMode::Ansi256,
+                    "truecolor" | "true-color" | "rgb" => AsciiColorMode::TrueColor,
+                    _ => {
+                        eprintln!("Warning: Unknown color mode '{}', using none", color_mode);
+                        AsciiColorMode::None
+                    }
+                };
 
-        MultimediaSubcommands::PlayAscii { input, width, height, speed, show_fps, color_mode, scale_mode, export, export_max } => {
-            let color_mode = match color_mode.as_str() {
-                "none" => AsciiColorMode::None,
-                "ansi256" => AsciiColorMode::Ansi256,
-                "truecolor" | "true-color" | "rgb" => AsciiColorMode::TrueColor,
-                _ => {
-                    eprintln!("Warning: Unknown color mode {}, using none", color_mode);
-                    AsciiColorMode::None
-                }
-            };
+                let options = GifExportOptions {
+                    fps,
+                    width,
+                    height,
+                    style,
+                    color_mode,
+                    start,
+                    duration,
+                };
 
-            let scale_mode = match scale_mode.as_str() {
-                "none" | "no" => crate::multimedia::traits::AsciiScaleMode::NoScale,
-                "fit" | "fill" | "window" => crate::multimedia::traits::AsciiScaleMode::FitWindow,
-                "keep" | "aspect" | "keep-aspect" => crate::multimedia::traits::AsciiScaleMode::KeepAspect,
-                _ => {
-                    eprintln!("Warning: Unknown scale mode {}, using keep-aspect", scale_mode);
-                    crate::multimedia::traits::AsciiScaleMode::KeepAspect
-                }
-            };
+                println!(
+                    "Exporting ASCII GIF: {} -> {}...",
+                    input.display(),
+                    output.display()
+                );
+                export_ascii_gif(&input, &output, options)?;
+                println!("Done! Saved to {}", output.display());
+                Ok(())
+            }
 
-            let options = AsciiPlayOptions {
+            MultimediaSubcommands::PlayAscii {
+                input,
                 width,
                 height,
                 speed,
                 show_fps,
                 color_mode,
                 scale_mode,
-                export_dir: export,
-                export_max_frames: export_max,
-            };
+                export,
+                export_max,
+            } => {
+                let color_mode = match color_mode.as_str() {
+                    "none" => AsciiColorMode::None,
+                    "ansi256" => AsciiColorMode::Ansi256,
+                    "truecolor" | "true-color" | "rgb" => AsciiColorMode::TrueColor,
+                    _ => {
+                        eprintln!("Warning: Unknown color mode {}, using none", color_mode);
+                        AsciiColorMode::None
+                    }
+                };
 
-            if options.export_dir.is_some() {
-                println!("Exporting ASCII frames from {} to directory...", input.display());
-            } else {
-                println!("Playing {} as ASCII art... (Press q or Ctrl+C to quit)", input.display());
+                let scale_mode = match scale_mode.as_str() {
+                    "none" | "no" => crate::multimedia::traits::AsciiScaleMode::NoScale,
+                    "fit" | "fill" | "window" => {
+                        crate::multimedia::traits::AsciiScaleMode::FitWindow
+                    }
+                    "keep" | "aspect" | "keep-aspect" => {
+                        crate::multimedia::traits::AsciiScaleMode::KeepAspect
+                    }
+                    _ => {
+                        eprintln!(
+                            "Warning: Unknown scale mode {}, using keep-aspect",
+                            scale_mode
+                        );
+                        crate::multimedia::traits::AsciiScaleMode::KeepAspect
+                    }
+                };
+
+                let options = AsciiPlayOptions {
+                    width,
+                    height,
+                    speed,
+                    show_fps,
+                    color_mode,
+                    scale_mode,
+                    export_dir: export,
+                    export_max_frames: export_max,
+                };
+
+                if options.export_dir.is_some() {
+                    println!(
+                        "Exporting ASCII frames from {} to directory...",
+                        input.display()
+                    );
+                } else {
+                    println!(
+                        "Playing {} as ASCII art... (Press q or Ctrl+C to quit)",
+                        input.display()
+                    );
+                }
+                play_ascii(&input, options)?;
+                println!("Done!");
+                Ok(())
             }
-            play_ascii(&input, options)?;
-            println!("Done!");
-            Ok(())
         }
     }
-}
 
     if let Err(e) = result {
         eprintln!("\n\x1b[31mERROR:\x1b[0m {}", e);

@@ -3,7 +3,7 @@
 use anyhow::Result;
 use std::path::Path;
 
-use crate::multimedia::{info::MediaInfo, error::MultimediaError};
+use crate::multimedia::{error::MultimediaError, info::MediaInfo};
 
 /// Media information provider
 pub trait MediaInfoProvider {
@@ -112,11 +112,7 @@ impl ExtractOptions {
 /// ASCII video player - plays video as ASCII art in terminal
 pub trait AsciiPlayer {
     /// Play video from file to terminal with given options
-    fn play(
-        &mut self,
-        input: &Path,
-        options: AsciiPlayOptions,
-    ) -> Result<(), MultimediaError>;
+    fn play(&mut self, input: &Path, options: AsciiPlayOptions) -> Result<(), MultimediaError>;
 
     /// Check if this player is available for input
     fn is_available(&self, input: &Path) -> bool;
