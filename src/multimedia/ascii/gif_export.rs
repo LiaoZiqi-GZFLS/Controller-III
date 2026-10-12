@@ -1,20 +1,24 @@
 //! ASCII GIF export - decode video, convert to ASCII, render frames to GIF
 
 use std::path::Path;
-use std::fs::File;
-
-use ffmpeg_the_third as ffmpeg;
-use image::{ImageBuffer, Rgb, Frame, Delay};
-use image::codecs::gif::GifEncoder;
 
 use crate::multimedia::{
-    error::MultimediaError,
-    traits::{AsciiColorMode, AsciiScaleMode},
-    ascii::{
-        calculate_dimensions, frame_to_ascii_grid,
-        gif_renderer::{GifRenderer, GifStyle},
-    },
+    ascii::gif_renderer::GifStyle, error::MultimediaError, traits::AsciiColorMode,
 };
+
+#[cfg(feature = "ffmpeg")]
+use crate::multimedia::{
+    ascii::{calculate_dimensions, frame_to_ascii_grid, gif_renderer::GifRenderer},
+    traits::AsciiScaleMode,
+};
+#[cfg(feature = "ffmpeg")]
+use ffmpeg_the_third as ffmpeg;
+#[cfg(feature = "ffmpeg")]
+use image::codecs::gif::GifEncoder;
+#[cfg(feature = "ffmpeg")]
+use image::{Delay, Frame, ImageBuffer, Rgb};
+#[cfg(feature = "ffmpeg")]
+use std::fs::File;
 
 /// Options for ASCII GIF export
 #[derive(Debug, Clone)]
@@ -29,6 +33,7 @@ pub struct GifExportOptions {
 }
 
 /// Export video to ASCII art animated GIF
+#[cfg(feature = "ffmpeg")]
 pub fn export_ascii_gif(
     input: &Path,
     output: &Path,
@@ -78,12 +83,12 @@ pub fn export_ascii_gif(
     let output_file = File::create(output)?;
     let mut gif_encoder = GifEncoder::new(output_file);
 
-
     // Calculate time range
     let start_time = options.start.unwrap_or(0.0);
-    let end_time = options.duration.map(|d| start_time + d).unwrap_or_else(|| {
-        input_ctx.duration() as f64 / ffmpeg::ffi::AV_TIME_BASE as f64
-    });
+    let end_time = options
+        .duration
+        .map(|d| start_time + d)
+        .unwrap_or_else(|| input_ctx.duration() as f64 / ffmpeg::ffi::AV_TIME_BASE as f64);
 
     let dt = 1.0 / options.fps;
     let frame_delay = Delay::from_numer_denom_ms((dt * 1000.0) as u32, 1);
@@ -119,7 +124,8 @@ pub fn export_ascii_gif(
                 let width = decoded.width();
                 let height = decoded.height();
                 let img = if decoded.format() == ffmpeg::format::Pixel::YUV420P {
-                    let mut rgb_img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+                    let mut rgb_img: ImageBuffer<Rgb<u8>, Vec<u8>> =
+                        ImageBuffer::new(width, height);
                     let y = decoded.data(0);
                     let u = decoded.data(1);
                     let v = decoded.data(2);
@@ -127,7 +133,9 @@ pub fn export_ascii_gif(
                     let linesize_u = decoded.stride(1);
                     let linesize_v = decoded.stride(2);
 
-                    for (y_row, y_line) in y.chunks_exact(linesize_y).take(height as usize).enumerate() {
+                    for (y_row, y_line) in
+                        y.chunks_exact(linesize_y).take(height as usize).enumerate()
+                    {
                         for (x_col, &y_val) in y_line.iter().take(width as usize).enumerate() {
                             let uv_row = y_row / 2;
                             let uv_x = x_col / 2;
@@ -147,9 +155,10 @@ pub fn export_ascii_gif(
                     }
                     rgb_img
                 } else {
-                    return Err(MultimediaError::InvalidParameter(
-                        format!("Unsupported pixel format: {:?}. Only YUV420P is supported for GIF export.", decoded.format())
-                    ));
+                    return Err(MultimediaError::InvalidParameter(format!(
+                        "Unsupported pixel format: {:?}. Only YUV420P is supported for GIF export.",
+                        decoded.format()
+                    )));
                 };
 
                 // Convert to ASCII and render
@@ -163,7 +172,8 @@ pub fn export_ascii_gif(
 
                 // Encode frame
                 let frame = Frame::from_parts(rendered, 0, 0, frame_delay);
-                gif_encoder.encode_frame(frame)
+                gif_encoder
+                    .encode_frame(frame)
                     .map_err(|e| MultimediaError::ImageError(e.to_string()))?;
             }
         }
@@ -174,4 +184,19 @@ pub fn export_ascii_gif(
     }
 
     Ok(())
+}
+
+/// Export video to ASCII art animated GIF.
+///
+/// GIF export depends on the FFmpeg backend.
+#[cfg(not(feature = "ffmpeg"))]
+#[allow(unused_variables)]
+pub fn export_ascii_gif(
+    input: &Path,
+    output: &Path,
+    options: GifExportOptions,
+) -> Result<(), MultimediaError> {
+    Err(MultimediaError::Unsupported(
+        "ASCII GIF export requires FFmpeg. Rebuild with the `ffmpeg` feature.".into(),
+    ))
 }
