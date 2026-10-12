@@ -1,74 +1,51 @@
-# Prerequisites
-*.d
+# Rust / Cargo
+/target/
+*.rs.bk
+Cargo.toml.orig
+*.debug
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-
-# debug information files
-*.dwo
-
-# Claude Code
-.claude/
-*.claude-*
-
-# VS Code
+# Editors and local agent config
 .vscode/
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
 *.code-workspace
+.claude/
+*.claude-*
 
+# Native build artifacts
+*.d
+*.slo
+*.lo
+*.o
+*.obj
+*.gch
+*.pch
+*.ilk
+*.pdb
+*.so
+*.dylib
+*.dll
+*.mod
+*.smod
+*.lai
+*.la
+*.a
+*.lib
+*.exe
+*.out
+*.app
+*.dwo
 
-# Added by cargo
+# Build logs
+build*.log
 
-/target
-
-# Rust
-Cargo.lock
-*.rs.bk
-Cargo.toml.orig
-
-# Rust debug
-*.debug
-test-frames/
-test-frames-every/
-test-output*/
-test-mp4/
-
-# Test output files
-test.mp4
-*.gif
+# Local test artifacts
+/test-extract/
+/test-export*/
+/test-frames*/
+/test-output*/
+/test-mp4/
+/test.mp4
+/output*.gif

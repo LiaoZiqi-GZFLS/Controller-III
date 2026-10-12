@@ -1,6 +1,6 @@
 # Controller III
 
-快速文件搜索 CLI 工具，支持 NTFS 极速搜索（Everything 类似速度）和智能排序（用户文件优先）。
+多功能 Rust CLI 工具，提供快速文件搜索、多媒体处理，以及终端 ASCII 视频播放和 GIF 导出。
 
 ## 功能特性
 
@@ -16,6 +16,8 @@
 - ⚙️ **可配置**：可配置搜索范围（目录 → 全盘），结果数量限制，大小写敏感开关
 - 🖥️ **两种模式**：无头直接搜索 + 交互式菜单
 - 🔑 **自动提权**：需要管理员权限时会询问用户自动提权重启（Windows）
+- **多媒体处理**：媒体信息、转码、抽帧、裁剪、音轨提取，支持 FFmpeg 后端
+- **ASCII 视频与 GIF**：终端播放 ASCII 视频，导出 ASCII 动画 GIF，支持终端/像素风格和多种颜色模式
 
 ## 架构设计
 
@@ -37,6 +39,8 @@ src/
     ├── headless.rs      # 无头模式（命令行直接搜索）
     └── interactive.rs   # 交互式菜单模式
 ```
+
+多媒体模块位于 `src/multimedia/`，通过 trait 抽象 FFmpeg 与原生 MP4+H.264 后端。
 
 ### "用户文件优先"评分算法
 
@@ -67,12 +71,26 @@ once_cell = "1.19"
 mft = "0.7"
 jiff = "0.2"
 windows = { version = "0.59", features = [...] }
+
+# Multimedia
+ffmpeg-the-third = "5.0"
+image = "0.25"
+mp4 = "0.14"
+openh264 = "0.5"
+crossterm = "0.27"
+cpal = "0.15"
+fontdue = "0.9"
 ```
 
 ## 编译
 
+默认 `ffmpeg` feature 需要系统能够找到 FFmpeg 8.1 开发库。Windows 可通过 `vcpkg` 或设置 `FFMPEG_DIR`，Linux 可安装 `pkg-config` 和 FFmpeg 开发包。
+
 ```bash
 cargo build --release
+
+# 不启用 FFmpeg：保留文件搜索、原生 MP4 抽帧和 ASCII 回退
+cargo build --release --no-default-features
 ```
 
 输出：`target/release/controller-iii.exe` (Windows)
@@ -107,6 +125,39 @@ controller-iii
 
 **如果需要 NTFS 极速搜索但当前没有管理员权限**：程序会询问是否提权重启 → 确认后自动 UAC 提权重启。
 
+### 多媒体处理
+
+```bash
+# 查看媒体信息
+controller-iii multimedia info input.mp4
+
+# 转码
+controller-iii multimedia transcode input.mp4 output.webm --bitrate 2000
+
+# 每 10 帧抽取一张图片
+controller-iii multimedia extract-frames input.mp4 frames/ --every 10
+
+# 裁剪视频
+controller-iii multimedia trim input.mp4 output.mp4 --start 10.5 --duration 30
+
+# 提取音轨
+controller-iii multimedia extract-audio input.mp4 output.mp3 --bitrate 192
+
+# 终端播放 ASCII 视频
+controller-iii multimedia play-ascii input.mp4 --speed 1.0 --color-mode truecolor
+
+# 导出 ASCII 动画 GIF
+controller-iii multimedia ascii-gif input.mp4 output.gif --fps 10 --width 80 --style terminal
+```
+
+需要 FFmpeg 的命令包括转码、裁剪、音轨提取和 ASCII GIF 导出。禁用 FFmpeg 后，这些命令会返回明确的错误提示。
+
+## 测试
+
+```bash
+cargo test --no-default-features
+```
+
 ## 性能对比
 
 | 场景 | NTFS MFT | 通用遍历 |
@@ -136,4 +187,4 @@ controller-iii
 
 ## 许可证
 
-MIT
+BSD-3-Clause
